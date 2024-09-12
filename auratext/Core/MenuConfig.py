@@ -2,10 +2,11 @@ import importlib
 import json
 import os
 import sys
-
+from auratext.Core.Modules import summary
 from PyQt6.QtWidgets import QMenu
 from PyQt6.QtGui import QAction, QIcon
 from .plugin_interface import MenuPluginInterface
+import logging
 
 local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
 cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
@@ -13,8 +14,41 @@ cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
 with open(f"{local_app_data}/data/theme.json", "r") as themes_file:
     _themes = json.load(themes_file)
 
+class LanguageMenuManager:
+    def __init__(self, window):
+        self.window = window
+        self.languages = [
+            "Python", "C++", "Java", "Fortran", "JavaScript", "Bash", "C#", "Ruby", 
+            "Pascal", "Perl", "MakeFile", "Markdown", "HTML", "YAML", "JSON", "SQL", 
+            "CSS", "XML", "Lua", "TCL", "Spice", "VHDL", "Octave", "Fortran77", 
+            "Verilog", "TeX", "CoffeeScript", "CMake", "Batch", "AVS", "ASM",
+            "PostScript"
+        ]
+        self.icon_path = "Resources/language_icons"
 
-def configure_menuBar(window):
+    def create_language_menu(self, parent_menu):
+        language_menu = QMenu("&Languages", parent_menu)
+        
+        submenus = {}
+        for lang in self.languages:
+            action = QAction(lang, self.window, checkable=True)
+            action.triggered.connect(lambda checked, l=lang.lower(): self.window.lexer_manager.apply_lexer(l))
+            self.window.action_group.addAction(action)
+
+            # Set icon if available
+            icon_path = os.path.join(self.icon_path, f"logo_{lang.lower()}.png")
+            if os.path.exists(icon_path):
+                action.setIcon(QIcon(icon_path))
+
+            first_letter = lang[0].upper()
+            if first_letter not in submenus:
+                submenus[first_letter] = QMenu(f"&{first_letter}", language_menu)
+                language_menu.addMenu(submenus[first_letter])
+            submenus[first_letter].addAction(action)
+
+        return language_menu
+
+def do_configure_menuBar(window):
     
     try:
         menubar = window.menuBar()
@@ -27,17 +61,14 @@ def configure_menuBar(window):
         whats_this_action.setShortcut("Shift+F1")
         menubar.addAction(whats_this_action)
         file_menu = QMenu("&File", window)
-        file_menu.addAction("New", window.cs_new_document).setWhatsThis("Create a New File")
+        file_menu.addAction("New", window.new_document).setWhatsThis("Create a New File")
    
-        new_menu = QMenu("New(With Template)", window)
-        new_menu.addAction(".html", window.html_temp)
-        new_menu.addAction(".py", window.py_temp)
-        new_menu.addAction(".cpp", window.cpp_temp)
-        new_menu.addAction(".php", window.php_temp)
-        new_menu.addAction(".tex", window.tex_temp)
-        new_menu.addAction(".java", window.java_temp)
+        new_menu = window.menuBar().addMenu("New")
+        file_types = [".py", ".cpp"]  # Add more file types as needed
+        for file_type in file_types:
+            new_menu.addAction(file_type, lambda ft=file_type: window.create_file_from_template(ft))
 
-        file_menu.addAction("Open", window.open_document).setWhatsThis("Open an existing file")
+        file_menu.addAction("Open", window.open_file).setWhatsThis("Open an existing file")
         file_menu.addSeparator()
         file_menu.addAction("New Project", window.new_project).setWhatsThis("Create a new project")
         file_menu.addAction("New Project from VCS", window.gitClone).setWhatsThis("Clone GIT repo")
@@ -58,7 +89,7 @@ def configure_menuBar(window):
 
         file_menu.addAction("Save As", window.save_document).setWhatsThis("Save the document")
         file_menu.addSeparator()
-        file_menu.addAction("Summary", window.summary).setWhatsThis(
+        file_menu.addAction("Summary", summary).setWhatsThis(
             "Get basic info of a file (Eg: Number of lines)"
         )
         file_menu.addSeparator()
@@ -141,7 +172,7 @@ def configure_menuBar(window):
         menubar.addMenu(code_menu)
 
         tools_menu = QMenu("&Tools", window)
-
+        
         tools_menu.addAction("Upload to Pastebin", window.pastebin).setWhatsThis(
             "Uploads the entire text content in your current editor to Pastebin and automatically copies the link"
         )
@@ -152,269 +183,15 @@ def configure_menuBar(window):
         menubar.addMenu(tools_menu)
     
         prefernces_menu = QMenu("&Preferences", window)
-        language_menu = QMenu("&Languages", prefernces_menu)
-        a_menu = QMenu("&A", language_menu)
-        b_menu = QMenu("&B", language_menu)
-        c_menu = QMenu("&C", language_menu)
-        d_menu = QMenu("&D", language_menu)
-        e_menu = QMenu("&E", language_menu)
-        f_menu = QMenu("&F", language_menu)
-        g_menu = QMenu("&G", language_menu)
-        h_menu = QMenu("&H", language_menu)
-        i_menu = QMenu("&I", language_menu)
-        j_menu = QMenu("&J", language_menu)
-        k_menu = QMenu("&K", language_menu)
-        l_menu = QMenu("&L", language_menu)
-        m_menu = QMenu("&M", language_menu)
-        n_menu = QMenu("&N", language_menu)
-        o_menu = QMenu("&O", language_menu)
-        p_menu = QMenu("&P", language_menu)
-        q_menu = QMenu("&Q", language_menu)
-        r_menu = QMenu("&R", language_menu)
-        s_menu = QMenu("&S", language_menu)
-        t_menu = QMenu("&T", language_menu)
-        u_menu = QMenu("&U", language_menu)
-        v_menu = QMenu("&V", language_menu)
-        w_menu = QMenu("&W", language_menu)
-        x_menu = QMenu("&X", language_menu)
-        y_menu = QMenu("&Y", language_menu)
-        z_menu = QMenu("&Z", language_menu)
-
-        action_py = QAction("Python", window, checkable=True)
-        action_py.triggered.connect(window.python)
-        window.action_group.addAction(action_py)
-
-        action_cpp = QAction("C++", window, checkable=True)
-        action_cpp.triggered.connect(window.cpp)
-        window.action_group.addAction(action_cpp)
-
-        action_java = QAction("Java", window, checkable=True)
-        action_java.triggered.connect(window.java)
-        window.action_group.addAction(action_java)
-
-        action_fortran = QAction("Fortran", window, checkable=True)
-        action_fortran.triggered.connect(window.fortran)
-        window.action_group.addAction(action_fortran)
-
-        action_js = QAction("JavaScript", window, checkable=True)
-        action_js.triggered.connect(window.javascript)
-        window.action_group.addAction(action_js)
-
-        action_bash = QAction("Bash", window, checkable=True)
-        action_bash.triggered.connect(window.bash)
-        window.action_group.addAction(action_bash)
-
-        action_csharp = QAction("C#", window, checkable=True)
-        action_csharp.triggered.connect(window.csharp)
-        window.action_group.addAction(action_csharp)
-
-        action_ruby = QAction("Ruby", window, checkable=True)
-        action_ruby.triggered.connect(window.ruby)
-        window.action_group.addAction(action_ruby)
-
-        action_pascal = QAction("Pascal", window, checkable=True)
-        action_pascal.triggered.connect(window.pascal)
-        window.action_group.addAction(action_pascal)
-
-        action_perl = QAction("Perl", window, checkable=True)
-        action_perl.triggered.connect(window.perl)
-        window.action_group.addAction(action_perl)
-
-        action_mk = QAction("MakeFile", window, checkable=True)
-        action_mk.triggered.connect(window.makefile)
-        window.action_group.addAction(action_mk)
-
-        action_md = QAction("Markdown", window, checkable=True)
-        action_md.triggered.connect(window.markdown)
-        window.action_group.addAction(action_md)
-
-        action_html = QAction("HTML", window, checkable=True)
-        action_html.triggered.connect(window.html)
-        window.action_group.addAction(action_html)
-
-        action_yaml = QAction("YAML", window, checkable=True)
-        action_yaml.triggered.connect(window.yaml)
-        window.action_group.addAction(action_yaml)
-
-        action_json = QAction("JSON", window, checkable=True)
-        action_json.triggered.connect(window.json)
-        window.action_group.addAction(action_json)
-
-        action_css = QAction("CSS", window, checkable=True)
-        action_css.triggered.connect(window.css)
-        window.action_group.addAction(action_css)
-
-        action_batch = QAction("Batch", window, checkable=True)
-        action_batch.triggered.connect(window.batch)
-        window.action_group.addAction(action_batch)
-
-        action_avs = QAction("AVS", window, checkable=True)
-        action_avs.triggered.connect(window.avs)
-        window.action_group.addAction(action_avs)
-
-        action_asm = QAction("ASM", window, checkable=True)
-        action_asm.triggered.connect(window.asm)
-        window.action_group.addAction(action_asm)
-
-        action_cmake = QAction("CMake", window, checkable=True)
-        action_cmake.triggered.connect(window.cmake)
-        window.action_group.addAction(action_cmake)
-
-        action_postscript = QAction("PostScript", window, checkable=True)
-        action_postscript.setIcon(QIcon("Resources/language_icons/logo_postscript.png"))
-        action_postscript.triggered.connect(window.postscript)
-        window.action_group.addAction(action_postscript)
-
-        action_coffeescript = QAction("CoffeeScript", window, checkable=True)
-        action_coffeescript.triggered.connect(window.coffeescript)
-        window.action_group.addAction(action_coffeescript)
-
-        # action_srec = QAction("SREC", self, checkable=True)
-        # action_srec.triggered.connect(self.srec)
-        # self.action_group.addAction(action_srec)
-
-        action_sql = QAction("SQL", window, checkable=True)
-        action_sql.triggered.connect(window.sql)
-        window.action_group.addAction(action_sql)
-
-        action_lua = QAction("Lua", window, checkable=True)
-        action_lua.triggered.connect(window.lua)
-        window.action_group.addAction(action_lua)
-
-        # action_idl = QAction("IDL", self, checkable=True)
-        # action_idl.triggered.connect(self.idl)
-        # self.action_group.addAction(action_idl)
-
-        # action_matlab = QAction("MATLAB", self, checkable=True)
-        # action_matlab.triggered.connect(self.matlab)
-        # self.action_group.addAction(action_matlab)
-
-        action_spice = QAction("Spice", window, checkable=True)
-        action_spice.triggered.connect(window.spice)
-        window.action_group.addAction(action_spice)
-
-        action_vhdl = QAction("VHDL", window, checkable=True)
-        action_vhdl.triggered.connect(window.vhdl)
-        window.action_group.addAction(action_vhdl)
-
-        action_octave = QAction("Octave", window, checkable=True)
-        action_octave.triggered.connect(window.octave)
-        window.action_group.addAction(action_octave)
-
-        action_fortran77 = QAction("Fortran77", window, checkable=True)
-        action_fortran77.triggered.connect(window.fortran77)
-        window.action_group.addAction(action_fortran77)
-
-        action_tcl = QAction("Tcl", window, checkable=True)
-        action_tcl.triggered.connect(window.tcl)
-        window.action_group.addAction(action_tcl)
-
-        action_verilog = QAction("Verilog", window, checkable=True)
-        action_verilog.triggered.connect(window.verilog)
-        window.action_group.addAction(action_verilog)
-
-        action_tex = QAction("TeX", window, checkable=True)
-        action_tex.triggered.connect(window.tex)
-        window.action_group.addAction(action_tex)
-        
-        # p menu
-        p_menu.addAction(action_pascal)
-        p_menu.addAction(action_perl)
-        p_menu.addAction(action_postscript)
-        p_menu.addAction(action_py)
-
-        # h menu
-        h_menu.addAction(action_html)
-
-        # y menu
-        y_menu.addAction(action_yaml)
-
-        # r menu
-        r_menu.addAction(action_ruby)
-
-        # v menu
-        v_menu.addAction(action_verilog)
-        v_menu.addAction(action_vhdl)
-
-        # m menu
-        m_menu.addAction(action_mk)
-        m_menu.addAction(action_md)
-       # m_menu.addAction(action_matlab)
-
-        # c menu
-        c_menu.addAction(action_cmake)
-        c_menu.addAction(action_coffeescript)
-        c_menu.addAction(action_cpp)
-        c_menu.addAction(action_csharp)
-        c_menu.addAction(action_css)
-
-        # f menu
-        f_menu.addAction(action_fortran)
-        f_menu.addAction(action_fortran77)
-
-        # b menu
-        b_menu.addAction(action_bash)
-        b_menu.addAction(action_batch)
-
-        # j menu
-        j_menu.addAction(action_java)
-        j_menu.addAction(action_js)
-        j_menu.addAction(action_json)
-
-        # i menu
-    #    i_menu.addAction(action_idl)
-
-        # a menu
-        a_menu.addAction(action_asm)
-        a_menu.addAction(action_avs)
-
-        # s menu
-        s_menu.addAction(action_spice)
-        s_menu.addAction(action_sql)
-       # s_menu.addAction(action_srec)
-
-        # t menu
-        t_menu.addAction(action_tcl)
-        t_menu.addAction(action_tex)
-
-        # o menu
-        o_menu.addAction(action_octave)
-
-        # l menu
-        l_menu.addAction(action_lua)
-
-        language_menu.addMenu(a_menu)
-        language_menu.addMenu(b_menu)
-        language_menu.addMenu(c_menu)
-        # language_menu.addMenu(d_menu)
-        # language_menu.addMenu(e_menu)
-        language_menu.addMenu(f_menu)
-        # language_menu.addMenu(g_menu)
-        language_menu.addMenu(h_menu)
-        language_menu.addMenu(i_menu)
-        language_menu.addMenu(j_menu)
-        # language_menu.addMenu(k_menu)
-        language_menu.addMenu(l_menu)
-        language_menu.addMenu(m_menu)
-        # language_menu.addMenu(n_menu)
-        language_menu.addMenu(o_menu)
-        language_menu.addMenu(p_menu)
-        # language_menu.addMenu(q_menu)
-        language_menu.addMenu(r_menu)
-        language_menu.addMenu(s_menu)
-        language_menu.addMenu(t_menu)
-        # language_menu.addMenu(u_menu)
-        language_menu.addMenu(v_menu)
-        # language_menu.addMenu(w_menu)
-        # language_menu.addMenu(x_menu)
-        language_menu.addMenu(y_menu)
-        # language_menu.addMenu(z_menu)
-
+       
+        language_menu_manager = LanguageMenuManager(window)
+        language_menu = language_menu_manager.create_language_menu(prefernces_menu)
+       
         if is_git_repo(cpath):
             menubar.addMenu(git_menu)
         else:
             pass
-    
+            
         prefernces_menu.addMenu(language_menu)
         prefernces_menu.addAction("Additional Preferences", window.additional_prefs)
         prefernces_menu.addAction("Import Theme", window.import_theme)
@@ -464,10 +241,10 @@ def configure_menuBar(window):
    
         # Load and categorize plugin
         plugin_dir = os.path.abspath(f"{local_app_data}/plugins")  # Path to your plugins directory
-        print(f"Plugin directory: {plugin_dir}")
+        logging.debug(f"Plugin directory: {plugin_dir}")
         if os.path.exists(plugin_dir):
             sys.path.append(plugin_dir)
-            print(f"Added {plugin_dir} to sys.path")
+            logging.info(f"Added {plugin_dir} to sys.path")
 
             for file_name in os.listdir(plugin_dir):
                 if file_name.endswith(".py"):
@@ -519,8 +296,6 @@ def configure_menuBar(window):
         print("Menu bar configuration completed successfully")
         return menubar
     except Exception as e:
-        print(f"Unexpected error in configure_menuBar: {e}")
-        import traceback
-        traceback.print_exc()
+        logging.exception(f"Error in configure_menuBar: {e}")
     finally:
-        print("Exiting configure_menuBar function")
+        logging.info("Exiting configure_menuBar function")

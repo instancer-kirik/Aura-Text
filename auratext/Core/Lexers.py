@@ -75,95 +75,53 @@ import re
 from PyQt6.Qsci import *
 from PyQt6.QtGui import QColor, QFont
 
+import logging
+
 class LexerManager:
     def __init__(self, window):
+        logging.debug("Initializing LexerManager")
         self.window = window
-        self.editor = window.current_editor
-        self.themes = window._themes
-
-    def apply_lexer(self, lexer_class, custom_settings=None):
-        lexer = lexer_class()
-        lexer.setDefaultColor(QColor("#FFFFFF"))
-        self.editor.setLexer(lexer)
-        lexer.setPaper(QColor(self.themes["editor_theme"]))
-        
-        # Apply common settings
-        lexer.setColor(QColor("#808080"), lexer.Comment)
-        lexer.setColor(QColor("#FFA500"), lexer.Keyword)
-        lexer.setFont(QFont(self.themes["font"]))
-
-        # Apply custom settings if provided
-        if custom_settings:
-            for style, color in custom_settings.items():
-                lexer.setColor(QColor(color), style)
-
-        self.editor.setMarginsBackgroundColor(QColor(self.themes["margin_theme"]))
-        self.editor.setMarginsForegroundColor(QColor("#FFFFFF"))
-
-    def python(self):
-        custom_settings = {
-            QsciLexerPython.ClassName: "#FFFFFF",
-            QsciLexerPython.TripleSingleQuotedString: "#59ff00",
-            QsciLexerPython.TripleDoubleQuotedString: "#59ff00",
-            QsciLexerPython.SingleQuotedString: "#3ba800",
-            QsciLexerPython.DoubleQuotedString: "#3ba800"
+        self.lexers = {
+            "python": QsciLexerPython,
+            "cpp": QsciLexerCPP,
+            "javascript": QsciLexerJavaScript,
+            "html": QsciLexerHTML,
+            "markdown": QsciLexerMarkdown,
+            # Add more lexers here as needed
         }
-        self.apply_lexer(QsciLexerPython, custom_settings)
 
-    def cpp(self):
-        custom_settings = {
-            QsciLexerCPP.Identifier: "#ffffff"
-        }
-        self.apply_lexer(QsciLexerCPP, custom_settings)
+    def get_available_lexers(self):
+        return list(self.lexers.keys())
 
-    def javascript(self):
-        custom_settings = {
-            QsciLexerJavaScript.Default: "#ffffff"
-        }
-        self.apply_lexer(QsciLexerJavaScript, custom_settings)
+    def apply_lexer(self, language, editor):
+        logging.debug(f"Attempting to apply lexer for language: {language}")
+        if editor is None:
+            logging.warning("No editor provided to apply lexer to")
+            return
 
-    def html(self):
-        custom_settings = {
-            QsciLexerHTML.Tag: "#808080"
-        }
-        self.apply_lexer(QsciLexerHTML, custom_settings)
+        try:
+            method = getattr(self, language, None)
+            if method:
+                method(editor)
+                logging.debug(f"Lexer for {language} applied successfully")
+            else:
+                logging.warning(f"No lexer method found for language: {language}")
+        except Exception as e:
+            logging.exception(f"Error applying lexer for {language}: {e}")
 
-    def markdown(self):
-        custom_settings = {
-            QsciLexerMarkdown.Header1: "#808080",
-            QsciLexerMarkdown.Header2: "#FFA500",
-            QsciLexerMarkdown.Header3: "#ffffff"
-        }
-        self.apply_lexer(QsciLexerMarkdown, custom_settings)
+    def python(self, editor):
+        logging.debug("Applying Python lexer")
+        lexer = QsciLexerPython(editor)
+        editor.setLexer(lexer)
+        logging.debug("Python lexer applied")
 
-    # Define methods for other languages
-    def csharp(self): self.apply_lexer(QsciLexerCSharp)
-    def avs(self): self.apply_lexer(QsciLexerAVS)
-    def asm(self): self.apply_lexer(QsciLexerAsm)
-    def coffeescript(self): self.apply_lexer(QsciLexerCoffeeScript)
-    def json(self): self.apply_lexer(QsciLexerJSON)
-    def fortran(self): self.apply_lexer(QsciLexerFortran)
-    def java(self): self.apply_lexer(QsciLexerJava)
-    def bash(self): self.apply_lexer(QsciLexerBash)
-    def yaml(self): self.apply_lexer(QsciLexerYAML)
-    def xml(self): self.apply_lexer(QsciLexerXML)
-    def ruby(self): self.apply_lexer(QsciLexerRuby)
-    def perl(self): self.apply_lexer(QsciLexerPerl)
-    def css(self): self.apply_lexer(QsciLexerCSS)
-    def lua(self): self.apply_lexer(QsciLexerLua)
-    def sql(self): self.apply_lexer(QsciLexerSQL)
-    def tex(self): self.apply_lexer(QsciLexerTeX)
-    def bat(self): self.apply_lexer(QsciLexerBatch)
-    def cmake(self): self.apply_lexer(QsciLexerCMake)
-    def postscript(self): self.apply_lexer(QsciLexerPostScript)
-    def makefile(self): self.apply_lexer(QsciLexerMakefile)
-    def pascal(self): self.apply_lexer(QsciLexerPascal)
-    def tcl(self): self.apply_lexer(QsciLexerTCL)
-    def verilog(self): self.apply_lexer(QsciLexerVerilog)
-    def spice(self): self.apply_lexer(QsciLexerSpice)
-    def vhdl(self): self.apply_lexer(QsciLexerVHDL)
-    def octave(self): self.apply_lexer(QsciLexerOctave)
-    def fortran77(self): self.apply_lexer(QsciLexerFortran77)
+    def cpp(self, editor):
+        logging.debug("Applying C++ lexer")
+        lexer = QsciLexerCPP(editor)
+        editor.setLexer(lexer)
+        logging.debug("C++ lexer applied")
+
+    # Add more lexer methods as needed
 
 class ColorCodeLexer(QsciLexerCustom):
     def __init__(self, parent=None):

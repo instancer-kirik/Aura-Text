@@ -4,13 +4,15 @@ import json
 import os
 import random
 import sys
+import logging
+import traceback
 import time
 import webbrowser
 from tkinter import filedialog
 import git
 import pyjokes
 from pyqtconsole.console import PythonConsole
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer, QObject
 from PyQt6.QtGui import QColor, QFont, QActionGroup, QFileSystemModel, QPixmap, QIcon
 from PyQt6.Qsci import QsciScintilla
 from PyQt6.QtWidgets import (
@@ -62,249 +64,285 @@ class Sidebar(QDockWidget):
 class Window(QMainWindow):
     def __init__(self):
         super().__init__()
-        print("Initializing Window")
-        self.local_app_data = local_app_data
-        # self._terminal_history = ""
+        logging.info("Starting Window initialization")
+        try:
+            self.local_app_data = local_app_data
+            # self._terminal_history = ""
 
-        # theme file
-        with open(f"{local_app_data}/data/theme.json", "r") as themes_file:
-            self._themes = json.load(themes_file)
+            # theme file
+            with open(f"{local_app_data}/data/theme.json", "r") as themes_file:
+                self._themes = json.load(themes_file)
 
-        # config file
-        with open(f"{local_app_data}/data/config.json", "r") as config_file:
-            self._config = json.load(config_file)
+            # config file
+            with open(f"{local_app_data}/data/config.json", "r") as config_file:
+                self._config = json.load(config_file)
 
-        # terminal history file
-        with open(f"{local_app_data}/data/terminal_history.txt", "r+") as thfile:
-            self.terminal_history = thfile.readlines()
+            # terminal history file
+            with open(f"{local_app_data}/data/terminal_history.txt", "r+") as thfile:
+                self.terminal_history = thfile.readlines()
 
-        # keymap file
-        with open(f"{local_app_data}/data/shortcuts.json", "r+") as kmfile:
-            self._shortcuts = json.load(kmfile)
+            # keymap file
+            with open(f"{local_app_data}/data/shortcuts.json", "r+") as kmfile:
+                self._shortcuts = json.load(kmfile)
 
-        self._config["show_setup_info"] = "False"
+            self._config["show_setup_info"] = "False"
 
-        def splashScreen():
-            # Splash Screen
-            splash_pix = ""
-            current_time = datetime.datetime.now().time()
-            sunrise_time = current_time.replace(hour=6, minute=0, second=0, microsecond=0)
-            sunset_time = current_time.replace(hour=18, minute=0, second=0, microsecond=0)
+            def splashScreen():
+                # Splash Screen
+                splash_pix = ""
+                current_time = datetime.datetime.now().time()
+                sunrise_time = current_time.replace(hour=6, minute=0, second=0, microsecond=0)
+                sunset_time = current_time.replace(hour=18, minute=0, second=0, microsecond=0)
 
-            # Check which time interval the current time falls into
-            if sunrise_time <= current_time < sunrise_time.replace(hour=12):
-                splash_pix = QPixmap(f"{local_app_data}/icons/splash_morning.png")
-            elif sunrise_time.replace(hour=12) <= current_time < sunset_time:
-                splash_pix = QPixmap(f"{local_app_data}/icons/splash_afternoon.png")
-            else:
-                splash_pix = QPixmap(f"{local_app_data}/icons/splash_night.png")
+                # Check which time interval the current time falls into
+                if sunrise_time <= current_time < sunrise_time.replace(hour=12):
+                    splash_pix = QPixmap(f"{local_app_data}/icons/splash_morning.png")
+                elif sunrise_time.replace(hour=12) <= current_time < sunset_time:
+                    splash_pix = QPixmap(f"{local_app_data}/icons/splash_afternoon.png")
+                else:
+                    splash_pix = QPixmap(f"{local_app_data}/icons/splash_night.png")
 
-            splash = QSplashScreen(splash_pix)
-            splash.show()
-            time.sleep(1)
-            splash.hide()
+                splash = QSplashScreen(splash_pix)
+                splash.show()
+                time.sleep(1)
+                splash.hide()
 
-        if self._config["splash"] == "True":
-            splashScreen()
-        else:
-            pass
-
-
-
-
-        print("Setting up UI components")
-        self.setup_ui()
-        
-        print("Configuring menu bar")
-        self.configure_menuBar()
-        
-        print("Loading plugins")
-        sys.path.append(f"{local_app_data}/plugins")
-        self.load_plugins()
-        
-        
-        print("Showing window")
-        self.show()
-        
-        print("Window initialization complete")
-
-    def setup_ui(self):
-        self.tab_widget = TabWidget()
-
-        self.current_editor = ""
-
-        if self._config["explorer_default_open"] == "True":
-            self.expandSidebar__Explorer()
-        else:
-            pass
-
-        if cpath == "" or cpath == " ":
-            welcome_widget = WelcomeScreen.WelcomeWidget(self)
-            self.tab_widget.addTab(welcome_widget, "Welcome")
-        else:
-            pass
-
-        self.tab_widget.setTabsClosable(True)
-
-        self.md_dock = QDockWidget("Markdown Preview")
-        self.mdnew = QDockWidget("Markdown Preview")
-        self.ps_dock = QDockWidget("Powershell")
-
-        # Sidebar
-        self.sidebar_main = Sidebar("", self)
-        self.sidebar_main.setTitleBarWidget(QWidget())
-        self.sidebar_widget = QWidget(self.sidebar_main)
-        self.sidebar_widget.setStyleSheet(f"QWidget{{background-color: {self._themes['sidebar_bg']};}}")
-        self.sidebar_layout = QVBoxLayout(self.sidebar_widget)
-        self.sidebar_main.setWidget(self.sidebar_widget)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.sidebar_main)
-
-
-        self.bottom_bar = QStatusBar()
-        # self.setStatusBar(self.bottom_bar)
-
-        self.leftBar = Sidebar("", self)
-        self.leftBar.setTitleBarWidget(QWidget())
-        self.leftBar_widget = QWidget(self.leftBar)
-        self.leftBar_widget.setStyleSheet(f"QWidget{{background-color: {self._themes['sidebar_bg']};}}")
-        self.leftBar_layout = QVBoxLayout(self.leftBar_widget)
-        self.leftBar_layout.addStretch()
-        self.leftBar_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        self.leftBar.setWidget(self.leftBar_widget)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.leftBar)
-
-        self.statusBar = statusBar.StatusBar(self)
-        self.setStatusBar(self.statusBar)
-
-        explorer_icon = QIcon(f"{local_app_data}/icons/explorer_unfilled.png")
-        self.explorer_button = QPushButton(self)
-        self.explorer_button.setIcon(explorer_icon)
-        self.explorer_button.setIconSize(QSize(23, 23))
-        self.explorer_button.setFixedSize(28, 28)
-        self.explorer_button.setStyleSheet(
-            """
-            QPushButton {
-                border: none;
-                border-radius: 10px;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background-color: #4e5157;
-            }
-            """
-        )
-
-        plugin_icon = QIcon(f"{local_app_data}/icons/extension_unfilled.png")
-        self.plugin_button = QPushButton(self)
-        self.plugin_button.setIcon(plugin_icon)
-        self.plugin_button.setIconSize(QSize(21, 21))
-        self.plugin_button.setFixedSize(30, 30)
-        self.plugin_button.setStyleSheet(
-            """
-            QPushButton {
-                border: none;
-                border-radius: 10px;
-                text-align: bottom;
-            }
-            QPushButton:hover {
-                background-color: #4e5157;
-            }
-            """
-        )
-
-        commit_icon = QIcon(f"{local_app_data}/icons/commit_unselected.png")
-        self.commit_button = QPushButton(self)
-        self.commit_button.setIcon(commit_icon)
-        self.commit_button.clicked.connect(self.gitCommit)
-        self.commit_button.setIconSize(QSize(25, 25))
-        self.commit_button.setFixedSize(30, 30)
-        self.commit_button.setStyleSheet(
-            """
-            QPushButton {
-                border: none;
-                border-radius: 10px;
-                text-align: bottom;
-            }
-            QPushButton:hover {
-                background-color: #4e5157;
-            }
-            """
-        )
-
-        self.sidebar_layout.insertWidget(0, self.explorer_button)
-        self.sidebar_layout.insertWidget(1, self.plugin_button)
-
-        if self.is_git_repo():
-            self.sidebar_layout.insertWidget(2, self.commit_button)
-        else:
-            pass
-
-        self.sidebar_layout.addStretch()
-        self.leftBar_layout.addStretch()
-        self.leftBar_layout.addSpacing(45)
-
-        # Connect the button's clicked signal to the slot
-        self.explorer_button.clicked.connect(self.expandSidebar__Explorer)
-        self.plugin_button.clicked.connect(self.expandSidebar__Plugins)
-
-        self.setCentralWidget(self.tab_widget)
-        self.editors = []
-
-        if self._config["open_last_file"] == "True":
-            if cfile != "" or cfile != " ":
-                self.open_last_file()
+            if self._config["splash"] == "True":
+                splashScreen()
             else:
                 pass
-        else:
-            pass
 
-        self.action_group = QActionGroup(self)
-        self.action_group.setExclusive(True)
-
-        self.tab_widget.setStyleSheet("QTabWidget {border: none;}")
-
-        self.tab_widget.currentChanged.connect(self.change_text_editor)
-        self.tab_widget.tabCloseRequested.connect(self.remove_editor)
-        # self.new_document()
-        self.setWindowTitle("Aura Text")
-        self.setWindowIcon(QIcon(f"{local_app_data}/icons/icon.ico"))
-       
+            logging.info("Setting up UI components")
+            self.setup_ui()
+            
+            logging.info("Configuring menu bar")
+            self.configure_menuBar()
+            
+            logging.info("Loading plugins")
+            sys.path.append(f"{local_app_data}/plugins")
+            try:
+                self.load_plugins()
+            except Exception as e:
+                logging.exception(f"Error during plugin loading: {e}")
         
-        self.showMaximized()
+            
+            logging.info("Showing window")
+            self.show()
+            
+            logging.info("Window initialization complete")
+        except Exception as e:
+            logging.exception(f"Error during Window initialization: {e}")
 
-        # Initialize theme manager
-        self.theme_manager = ThemeManager(self.local_app_data)
-        
-        # Apply theme
-        self.theme_manager.apply_theme(self)
+    def setup_ui(self):
+        logging.info("Starting UI setup")
+        try:
+            self.tab_widget = TabWidget()
 
-        # Initialize theme downloader
-        self.theme_downloader = ThemeDownloader(self.theme_manager)
+            self.current_editor = ""
 
-        # Set up the main window
-        self.setWindowTitle("AuraText")
-        self.setGeometry(100, 100, 800, 600)
+            if self._config["explorer_default_open"] == "True":
+                self.expandSidebar__Explorer()
+            else:
+                pass
 
-        # Add a simple label to verify the window is working
-        self.label = QLabel("Welcome to AuraText", self)
-        self.label.setGeometry(50, 50, 200, 30)
+            if cpath == "" or cpath == " ":
+                welcome_widget = WelcomeScreen.WelcomeWidget(self)
+                self.tab_widget.addTab(welcome_widget, "Welcome")
+            else:
+                pass
 
-        print("Window initialization complete")
+            self.tab_widget.setTabsClosable(True)
+
+            self.md_dock = QDockWidget("Markdown Preview")
+            self.mdnew = QDockWidget("Markdown Preview")
+            self.ps_dock = QDockWidget("Powershell")
+
+            # Sidebar
+            self.sidebar_main = Sidebar("", self)
+            self.sidebar_main.setTitleBarWidget(QWidget())
+            self.sidebar_widget = QWidget(self.sidebar_main)
+            self.sidebar_widget.setStyleSheet(f"QWidget{{background-color: {self._themes['sidebar_bg']};}}")
+            self.sidebar_layout = QVBoxLayout(self.sidebar_widget)
+            self.sidebar_main.setWidget(self.sidebar_widget)
+            self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.sidebar_main)
+
+
+            self.bottom_bar = QStatusBar()
+            # self.setStatusBar(self.bottom_bar)
+
+            self.leftBar = Sidebar("", self)
+            self.leftBar.setTitleBarWidget(QWidget())
+            self.leftBar_widget = QWidget(self.leftBar)
+            self.leftBar_widget.setStyleSheet(f"QWidget{{background-color: {self._themes['sidebar_bg']};}}")
+            self.leftBar_layout = QVBoxLayout(self.leftBar_widget)
+            self.leftBar_layout.addStretch()
+            self.leftBar_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            self.leftBar.setWidget(self.leftBar_widget)
+            self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.leftBar)
+
+            self.statusBar = statusBar.StatusBar(self)
+            self.setStatusBar(self.statusBar)
+
+            explorer_icon = QIcon(f"{local_app_data}/icons/explorer_unfilled.png")
+            self.explorer_button = QPushButton(self)
+            self.explorer_button.setIcon(explorer_icon)
+            self.explorer_button.setIconSize(QSize(23, 23))
+            self.explorer_button.setFixedSize(28, 28)
+            self.explorer_button.setStyleSheet(
+                """
+                QPushButton {
+                    border: none;
+                    border-radius: 10px;
+                    text-align: left;
+                }
+                QPushButton:hover {
+                    background-color: #4e5157;
+                }
+                """
+            )
+
+            plugin_icon = QIcon(f"{local_app_data}/icons/extension_unfilled.png")
+            self.plugin_button = QPushButton(self)
+            self.plugin_button.setIcon(plugin_icon)
+            self.plugin_button.setIconSize(QSize(21, 21))
+            self.plugin_button.setFixedSize(30, 30)
+            self.plugin_button.setStyleSheet(
+                """
+                QPushButton {
+                    border: none;
+                    border-radius: 10px;
+                    text-align: bottom;
+                }
+                QPushButton:hover {
+                    background-color: #4e5157;
+                }
+                """
+            )
+
+            commit_icon = QIcon(f"{local_app_data}/icons/commit_unselected.png")
+            self.commit_button = QPushButton(self)
+            self.commit_button.setIcon(commit_icon)
+            self.commit_button.clicked.connect(self.gitCommit)
+            self.commit_button.setIconSize(QSize(25, 25))
+            self.commit_button.setFixedSize(30, 30)
+            self.commit_button.setStyleSheet(
+                """
+                QPushButton {
+                    border: none;
+                    border-radius: 10px;
+                    text-align: bottom;
+                }
+                QPushButton:hover {
+                    background-color: #4e5157;
+                }
+                """
+            )
+
+            self.sidebar_layout.insertWidget(0, self.explorer_button)
+            self.sidebar_layout.insertWidget(1, self.plugin_button)
+
+            if self.is_git_repo():
+                self.sidebar_layout.insertWidget(2, self.commit_button)
+            else:
+                pass
+
+            self.sidebar_layout.addStretch()
+            self.leftBar_layout.addStretch()
+            self.leftBar_layout.addSpacing(45)
+
+            # Connect the button's clicked signal to the slot
+            self.explorer_button.clicked.connect(self.expandSidebar__Explorer)
+            self.plugin_button.clicked.connect(self.expandSidebar__Plugins)
+
+            self.setCentralWidget(self.tab_widget)
+            self.editors = []
+
+            if self._config["open_last_file"] == "True":
+                if cfile != "" or cfile != " ":
+                    self.open_last_file()
+                else:
+                    pass
+            else:
+                pass
+
+            self.action_group = QActionGroup(self)
+            self.action_group.setExclusive(True)
+
+            self.tab_widget.setStyleSheet("QTabWidget {border: none;}")
+
+            self.tab_widget.currentChanged.connect(self.change_text_editor)
+            self.tab_widget.tabCloseRequested.connect(self.remove_editor)
+            # self.new_document()
+            self.setWindowTitle("Aura Text")
+            self.setWindowIcon(QIcon(f"{local_app_data}/icons/icon.ico"))
+           
+            
+            self.showMaximized()
+
+            # Initialize theme manager
+            self.theme_manager = ThemeManager(self.local_app_data)
+            
+            # Apply theme
+            self.theme_manager.apply_theme(self)
+
+            # Initialize theme downloader
+            self.theme_downloader = ThemeDownloader(self.theme_manager)
+
+            # Set up the main window
+            self.setWindowTitle("AuraText")
+            self.setGeometry(100, 100, 800, 600)
+
+            # Add a simple label to verify the window is working
+            self.label = QLabel("Welcome to AuraText", self)
+            self.label.setGeometry(50, 50, 200, 30)
+
+            logging.info("UI setup complete")
+        except Exception as e:
+            logging.exception(f"Error during UI setup: {e}")
 
         self.lexer_manager = LexerManager(self)
         self.show()
 
     def apply_lexer(self, language):
-        print(f"Applying lexer for language: {language}")
-        method = getattr(self.lexer_manager, language, None)
-        if method:
-            method()
+        logging.info(f"Applying lexer for language: {language}")
+        if self.current_editor:
+            method = getattr(self.lexer_manager, language, None)
+            if method:
+                method()
+            else:
+                logging.info(f"No lexer found for language: {language}")
         else:
-            print(f"No lexer found for language: {language}")
+            logging.warning("No current editor to apply lexer to")
 
     def create_editor(self):
-        self.text_editor = CodeEditor(self)
-        return self.text_editor
+        logging.info("Entering create_editor method")
+        try:
+            logging.debug("Attempting to import CodeEditor")
+            from .AuraText import CodeEditor
+            logging.debug("CodeEditor imported successfully")
+            
+            logging.debug("Attempting to create CodeEditor instance")
+            try:
+                editor = CodeEditor(self)
+                logging.debug(f"CodeEditor instance created: {editor}")
+            except Exception as e:
+                logging.exception(f"Error creating CodeEditor instance: {e}")
+                return None
+            
+            if editor is None:
+                logging.error("CodeEditor constructor returned None")
+                return None
+            
+            self.current_editor = editor
+            logging.info("Editor created and set as current_editor successfully")
+            return editor
+        except ImportError as ie:
+            logging.exception(f"Error importing CodeEditor: {ie}")
+        except Exception as e:
+            logging.exception(f"Unexpected error in create_editor: {e}")
+        
+        logging.error("Failed to create editor")
+        return None
 
     def getTextStats(self, widget):
         if isinstance(widget, QTextEdit):
@@ -348,19 +386,73 @@ class Window(QMainWindow):
                     pass
 
     def load_plugins(self):
-        self.plugins = []
-        plugin_files = [
-            f.split(".")[0] for f in os.listdir(f"{local_app_data}/plugins") if f.endswith(".py")
-        ]
-        print(plugin_files)
-        for plugin_file in plugin_files:
+        logging.debug("Entering load_plugins method")
+        try:
+            self.plugins = []
+            plugin_dir = f"{local_app_data}/plugins"
+            if not os.path.exists(plugin_dir):
+                logging.warning(f"Plugin directory does not exist: {plugin_dir}")
+                return
+
+            sys.path.insert(0, plugin_dir)
+            plugin_files = [f.split(".")[0] for f in os.listdir(plugin_dir) if f.endswith(".py")]
+            logging.info(f"Found plugin files: {plugin_files}")
+            
+            for plugin_file in plugin_files:
+                try:
+                    self.load_single_plugin(plugin_file)
+                except Exception as e:
+                    logging.exception(f"Failed to load plugin {plugin_file}: {e}")
+        except Exception as e:
+            logging.exception(f"Error in load_plugins method: {e}")
+        finally:
+            logging.debug("Exiting load_plugins method")
+
+    def load_single_plugin(self, plugin_file):
+        logging.debug(f"Entering load_single_plugin for {plugin_file}")
+        try:
+            logging.info(f"Attempting to import plugin: {plugin_file}")
             module = importlib.import_module(plugin_file)
-            for name, obj in module.__dict__.items():
-                if isinstance(obj, type) and issubclass(obj, Plugin) and obj is not Plugin:
+            logging.info(f"Successfully imported {plugin_file}")
+            
+            for plugin_name, plugin_class in module.__dict__.items():
+                if isinstance(plugin_class, type) and issubclass(plugin_class, Plugin) and plugin_class != Plugin:
+                    logging.info(f"Found plugin class: {plugin_name}")
+                    
                     try:
-                        self.plugins.append(obj(self))
+                        logging.debug(f"Attempting to instantiate {plugin_name}")
+                        logging.debug(f"failed plugin_instance = plugin_class(self)")
+                        
+                       # plugin_instance = plugin_class(self)
+                        logging.debug(f"Successfully instantiated {plugin_name}")
                     except Exception as e:
-                        print(e)
+                        logging.exception(f"Error instantiating {plugin_name}: {e}")
+                        continue  # Skip to the next plugin if instantiation fails
+
+                    logging.debug(f"Plugin instance created: {type(plugin_instance)}")
+                    
+                    try:
+                        logging.debug(f"Calling initialize for {plugin_name}")
+                        plugin_instance.initialize()
+                        logging.debug(f"Initialize completed for {plugin_name}")
+                    except Exception as e:
+                        logging.exception(f"Error initializing {plugin_name}: {e}")
+                        continue  # Skip to the next plugin if initialization fails
+
+                    try:
+                        logging.debug(f"Attempting to append {plugin_name} to self.plugins")
+                        if not hasattr(self, 'plugins'):
+                            self.plugins = []
+                        self.plugins.append(plugin_instance)
+                        logging.info(f"Successfully added {plugin_name} to self.plugins")
+                    except Exception as e:
+                        logging.exception(f"Error adding {plugin_name} to self.plugins: {e}")
+
+                    logging.info(f"Loaded and initialized plugin: {plugin_name}")
+        except Exception as e:
+            logging.exception(f"Error loading plugin {plugin_file}: {e}")
+        finally:
+            logging.debug(f"Exiting load_single_plugin for {plugin_file}")
 
     def onPluginDockVisibilityChanged(self, visible):
         if visible:
@@ -592,57 +684,42 @@ class Window(QMainWindow):
 
     def is_git_repo(self):
         return os.path.isdir(os.path.join(cpath, '.git'))
-
-    def open_file(self, index):
-        path = self.model.filePath(index)
-        image_extensions = ["png", "jpg", "jpeg", "ico", "gif", "bmp"]
-        ext = path.split(".")[-1]
-
-        def add_image_tab():
-            ModuleFile.add_image_tab(self, self.tab_widget, path, os.path.basename(path))
-
+    def save_document(self):
+        ModuleFile.savedocument(self)
+    def open_file(self, path=None):
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(self, "Open File", "", "All Files (*)")
+        
         if path:
             try:
-                if ext in image_extensions:
-                    add_image_tab()
-                    return
+                with open(path, 'r', encoding='utf-8') as file:
+                    content = file.read()
+                
+                self.new_document(title=os.path.basename(path))
+                logging.info("New document created successfully")
+                if self.current_editor:
+                    self.current_editor.setText(content)
+                    
+                    # Apply lexer based on file extension
+                    _, ext = os.path.splitext(path)
+                    self.apply_lexer_for_extension(ext)
+                else:
+                    raise Exception("Failed to create a new editor")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to open file: {str(e)}")
 
-            except UnicodeDecodeError:
-                messagebox = QMessageBox()
-                messagebox.setWindowTitle("Wrong Filetype!"), messagebox.setText(
-                    "This file type is not supported!"
-                )
-                messagebox.exec()
-
-            try:
-                f = open(path, "r")
-                try:
-                    filedata = f.read()
-                    self.new_document(title=os.path.basename(path))
-                    self.current_editor.insert(filedata)
-                    self.apply_lexer(ext)
-                    if ext.lower() == "md":
-                        self.markdown_open(filedata)
-                    elif ext.lower() == "png":
-                        add_image_tab()
-                    f.close()
-
-                except UnicodeDecodeError:
-                    messagebox = QMessageBox()
-                    messagebox.setWindowTitle("Wrong Filetype!"), messagebox.setText(
-                        "This file type is not supported!"
-                    )
-                    messagebox.exec()
-            except FileNotFoundError:
-                return
+    def apply_lexer_for_extension(self, ext):
+        # This method should be implemented to apply the appropriate lexer
+        # based on the file extension
+        pass
 
     def configure_menuBar(self):
         try:
-            
-            MenuConfig.configure_menuBar(self)
-            print("Menu bar configuration complete")
+            logging.info("aaaaaaaaa")
+            MenuConfig.do_configure_menuBar(self)
+            logging.info("111111111")
         except Exception as e:
-            print(f"Error in configure_menuBar: {e}")
+            logging.exception(f"Error in configure_menuBar: {e}")
             import traceback
             traceback.print_exc()
             input("Press Enter to continue...")  # This will keep the console open  
@@ -718,15 +795,27 @@ class Window(QMainWindow):
         settings.exec()
 
     def new_document(self, checked=False, title="Scratch 1"):
-        self.current_editor = self.create_editor()
-        self.current_editor.textChanged.connect(self.updateStatusBar)
-        self.current_editor.cursorPositionChanged.connect(self.updateStatusBar)
-        self.load_plugins()
-
-        self.editors.append(self.current_editor)
-        self.tab_widget.addTab(self.current_editor, title)
-        self.tab_widget.setCurrentWidget(self.current_editor)
-        self.theme_manager.apply_theme_to_editor(self.current_editor)
+        logging.info(f"Creating new document: {title}")
+        try:
+            logging.info("Step 1: Creating new editor")
+            self.current_editor = self.create_editor()
+            if self.current_editor:
+                logging.info("Step 2: Adding editor to list and tab widget")
+                self.current_editor.textChanged.connect(self.updateStatusBar)
+                self.current_editor.cursorPositionChanged.connect(self.updateStatusBar)
+                self.editors.append(self.current_editor)
+                self.tab_widget.addTab(self.current_editor, title)
+                self.tab_widget.setCurrentWidget(self.current_editor)
+                self.theme_manager.apply_theme_to_editor(self.current_editor)
+                
+                logging.info("Step 3: Applying default lexer")
+                self.apply_lexer("text")  # Apply a default "text" lexer, or choose another default
+                
+                logging.info("New document created successfully")
+            else:
+                logging.error("Failed to create new document: create_editor returned None")
+        except Exception as e:
+            logging.exception(f"Error creating new document: {e}")
 
     def custom_new_document(self, title, checked=False):
         self.current_editor = self.create_editor()
@@ -797,174 +886,87 @@ class Window(QMainWindow):
 
     def py_temp(self):
         text = file_templates.generate_python_template()
-        self.current_editor.append(text)
+        if self.current_editor:
+            self.current_editor.setText(text)
+        else:
+            self.new_document(title="Untitled.py")
+            self.current_editor.setText(text)
+        self.apply_lexer("python")
 
-    def php_temp(self):
-        text = file_templates.generate_php_template()
-        self.current_editor.append(text)
+    def create_file_from_template(self, file_type):
+        if file_type == ".py":
+            text = file_templates.generate_python_template()
+        elif file_type == ".cpp":
+            text = file_templates.generate_cpp_template()
+        # Add more elif statements for other file types as needed
+        else:
+            text = ""  # Empty template for unknown file types
 
-    def tex_temp(self):
-        text = file_templates.generate_tex_template()
-        self.current_editor.append(text)
-
-    def java_temp(self):
-        text = file_templates.generate_java_template("Welcome")
-        self.current_editor.append(text)
-
-    def cpp_temp(self):
-        text = file_templates.generate_cpp_template()
-        self.current_editor.append(text)
-    def python(self):
-        self.lexer_manager.python()
-
-    def cpp(self):
-        self.lexer_manager.cpp()
-
-    def javascript(self):
-        self.lexer_manager.javascript()
-    def js(self):
-        self.lexer_manager.javascript()
-    def html(self):
-        self.lexer_manager.html()
-
-    def markdown(self):
-        self.lexer_manager.markdown()
-
-    def csharp(self):
-        self.lexer_manager.csharp()
-
-    def avs(self):
-        self.lexer_manager.avs()
-
-    def asm(self):
-        self.lexer_manager.asm()
-
-    def coffeescript(self):
-        self.lexer_manager.coffeescript()
-
-    def json(self):
-        self.lexer_manager.json()
-
-    def fortran(self):
-        self.lexer_manager.fortran()
-
-    def java(self):
-        self.lexer_manager.java()
-
-    def bash(self):
-        self.lexer_manager.bash()
-    def batch(self):
-            self.lexer_manager.bat()
-    def yaml(self):
-        self.lexer_manager.yaml()
-
-    def xml(self):
-        self.lexer_manager.xml()
-
-    def ruby(self):
-        self.lexer_manager.ruby()
-
-    def perl(self):
-        self.lexer_manager.perl()
-
-    def css(self):
-        self.lexer_manager.css()
-
-    def lua(self):
-        self.lexer_manager.lua()
-
-    def sql(self):
-        self.lexer_manager.sql()
-
-    def tex(self):
-        self.lexer_manager.tex()
-
-    def bat(self):
-        self.lexer_manager.bat()
-
-    def cmake(self):
-        self.lexer_manager.cmake()
-
-    def postscript(self):
-        self.lexer_manager.postscript()
-
-    def makefile(self):
-        self.lexer_manager.makefile()
-
-    def pascal(self):
-        self.lexer_manager.pascal()
-
-    def tcl(self):
-        self.lexer_manager.tcl()
-
-    def verilog(self):
-        self.lexer_manager.verilog()
-
-    def spice(self):
-        self.lexer_manager.spice()
-
-    def vhdl(self):
-        self.lexer_manager.vhdl()
-
-    def octave(self):
-        self.lexer_manager.octave()
-
-    def fortran77(self):
-        self.lexer_manager.fortran77()
-    def notes(self):
-        note_dock = QDockWidget("Notes", self)
-        note_widget = QPlainTextEdit(note_dock)
-        note_widget.setFont(QFont(self._themes["font"]))
-        note_dock.setWidget(note_widget)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, note_dock)
-        note_dock.show()
-
-    def redo_document(self):
-        self.current_editor.redo()
+        if self.current_editor:
+            self.current_editor.setText(text)
+        else:
+            self.new_document(title=f"Untitled{file_type}")
+            self.current_editor.setText(text)
+        
+        self.apply_lexer(file_type[1:])  # Remove the dot from the file extension
 
     def cut_document(self):
-        self.current_editor.cut()
+        if self.current_editor:
+            self.current_editor.cut()
 
     def copy_document(self):
-        self.current_editor.copy()
-
-    def summary(self):
-        lines = str(self.current_editor.lines())
-        text = self.current_editor.text()
-        text = "Number of Lines: " + lines
-        messagebox = QMessageBox()
-        messagebox.setText(text), messagebox.setWindowTitle("Summary")
-        messagebox.exec()
+        if self.current_editor:
+            self.current_editor.copy()
 
     def paste_document(self):
-        self.current_editor.paste()
+        if self.current_editor:
+            self.current_editor.paste()
 
-    def remove_editor(self, index):
-        self.tab_widget.removeTab(index)
-        if index < len(self.editors):
-            del self.editors[index]
+    def redo_document(self):
+        if self.current_editor:
+            self.current_editor.redo()
 
-    def open_document(self):
-        a = ModuleFile.open_document(self)
-        self.load_plugins()
+    def find_in_editor(self):
+        # Implement find functionality
+        pass
+    
+    def notes(self):
+        notes_dock = QDockWidget("Notes", self)
+        notes_text = QTextEdit()
+        notes_dock.setWidget(notes_text)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, notes_dock)
+    
+    def addAction(self, action):
+        logging.debug(f"Adding action: {action.text()}")
+        super().addAction(action)
+        logging.debug(f"Action added: {action.text()}")
+    @staticmethod
+    def getting_started():
+        webbrowser.open_new_tab("https://github.com/rohankishore/Aura-Text/wiki")
 
-    def open_last_file(self, title=os.path.basename(cfile)):
-        try:
-            file = open(cfile, "r+")
-            self.current_editor = self.create_editor()
-            self.current_editor.textChanged.connect(self.updateStatusBar)
-            self.current_editor.cursorPositionChanged.connect(self.updateStatusBar)
-            text = file.read()
-            self.editors.append(self.current_editor)
-            self.current_editor.setText(text)
-            self.tab_widget.addTab(self.current_editor, title)
-            self.tab_widget.setCurrentWidget(self.current_editor)
-        except FileNotFoundError and OSError:
-            pass
+    @staticmethod
+    def buymeacoffee():
+        webbrowser.open_new_tab("https://ko-fi.com/rohankishore")
+    def fullscreen(self):
+            if self.isFullScreen():
+                self.showNormal()
+            else:
+                self.showFullScreen()
 
-    def save_document(self):
-        ModuleFile.save_document(self)
+    # def fullscreen(self):
+    #     if not self.isFullScreen():
+    #         self.showFullScreen()
+    #     else:
+    #         self.showMaximized()
 
+    @staticmethod
+    def bug_report():
+        webbrowser.open_new_tab("https://github.com/rohankishore/Aura-Text/issues/new/choose")
+
+    @staticmethod
+    def discord():
+        pass
+    
     @staticmethod
     def about_github():
         webbrowser.open_new_tab("https://github.com/rohankishore/Aura-Notes")
@@ -984,31 +986,3 @@ class Window(QMainWindow):
         msg_box.setWindowTitle("About")
         msg_box.setText(text_ver)
         msg_box.exec()
-
-    @staticmethod
-    def getting_started():
-        webbrowser.open_new_tab("https://github.com/rohankishore/Aura-Text/wiki")
-
-    @staticmethod
-    def buymeacoffee():
-        webbrowser.open_new_tab("https://ko-fi.com/rohankishore")
-
-    def fullscreen(self):
-        if not self.isFullScreen():
-            self.showFullScreen()
-        else:
-            self.showMaximized()
-
-    @staticmethod
-    def bug_report():
-        webbrowser.open_new_tab("https://github.com/rohankishore/Aura-Text/issues/new/choose")
-
-    @staticmethod
-    def discord():
-        webbrowser.open_new_tab("https://discord.gg/4PJfTugn")
-
-    def apply_theme(self):
-        print("Applying theme to window and editors")
-        self.theme_manager.apply_theme(self)
-        for editor in self.editors:
-            self.theme_manager.apply_theme_to_editor(editor)

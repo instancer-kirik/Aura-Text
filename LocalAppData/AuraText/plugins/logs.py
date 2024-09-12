@@ -1,25 +1,31 @@
-from auratext import Plugin
-from auratext.Core.window import Window, QPlainTextEdit
-import sys
-
+import logging
+from auratext.Core.plugin_interface import Plugin
 
 class LogsPlugin(Plugin):
-    def __init__(self, window: Window) -> None:
-        super().__init__(window)
-        self.widget = QPlainTextEdit()
+    def __init__(self, window):
+        logging.debug("Entering LogsPlugin.__init__")
+        try:
+            super().__init__(window)
+            logging.debug("LogsPlugin: super().__init__(window) completed")
+            # Remove this line as it's redundant (already set in the parent class)
+            # self.window = window
+            logging.debug("LogsPlugin: Additional initialization completed")
+        except Exception as e:
+            logging.exception(f"Error in LogsPlugin.__init__: {e}")
+        finally:
+            logging.debug("Exiting LogsPlugin.__init__")
 
-        sys.stdout.write = sys.stderr.write = self.log
-        action = self.window.addAction("Show Logs")
-        action.setShortcut("Alt+Shift+C")
-        action.triggered.connect(
-            lambda: self.widget.show() if self.widget.isHidden() else self.widget.hide()
-        )
+    def log(self, message):
+        logging.debug(f"LogsPlugin.log called with message: {message}")
 
-        print("hello")
-        print("how")
-        a = window.current_editor.text()
-        print(a)
-
-    def log(self, msg: str):
-        self.widget.setPlainText(f"{self.widget.toPlainText()}{msg}")
-
+    def initialize(self):
+        logging.debug("Entering LogsPlugin.initialize")
+        try:
+            super().initialize()
+            logging.debug("LogsPlugin: super().initialize() completed")
+            # Add any additional initialization here
+            logging.debug("LogsPlugin: Additional initialization in initialize() completed")
+        except Exception as e:
+            logging.exception(f"Error in LogsPlugin.initialize: {e}")
+        finally:
+            logging.debug("Exiting LogsPlugin.initialize")

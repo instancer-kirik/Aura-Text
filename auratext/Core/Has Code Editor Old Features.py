@@ -72,65 +72,84 @@ import logging
     
 class CodeEditor(QsciScintilla):
     def __init__(self, window):
-        logging.info("Entering CodeEditor.__init__")
-        try:
-            logging.debug("Calling QsciScintilla.__init__")
-            super().__init__(window)
-            logging.debug("QsciScintilla.__init__ completed")
-            
-            self.window = window
-            logging.debug("Window assigned to self.window")
-            
-            logging.debug("Setting up basic editor properties")
-            self.setUtf8(True)
-            self.setIndentationsUseTabs(False)
-            self.setTabWidth(4)
-            self.setIndentationGuides(True)
-            self.setTabIndents(True)
-            self.setAutoIndent(True)
-            self.setCaretLineVisible(True)
-            self.setCaretWidth(2)
-            logging.debug("Basic editor properties set")
-            
-            logging.debug("Setting up margins")
-            self.setMarginType(0, QsciScintilla.MarginType.NumberMargin)
-            self.setMarginWidth(0, "0000")
-            self.setMarginsForegroundColor(QColor("#ff888888"))
-            self.setMarginLineNumbers(1, True)
-            logging.debug("Margins set up")
-            
-            logging.debug("Setting up lexer")
-            self.lexer_manager = Lexers.LexerManager(window)
-            logging.debug("LexerManager created")
-            
-            logging.debug("Applying default lexer")
-            self.lexer_manager.apply_lexer("python", self)  # Pass self as the editor
-            logging.debug("Default lexer applied")
-            
-            logging.debug("Setting up autocompletion")
-            apis = QsciAPIs(self.lexer())
-            self.setAutoCompletionSource(QsciScintilla.AutoCompletionSource.AcsAll)
-            self.setAutoCompletionThreshold(1)
-            self.setAutoCompletionCaseSensitivity(True)
-            self.setAutoCompletionFillupsEnabled(True)
-            logging.debug("Autocompletion set up")
-            
-            logging.debug("Setting up wrapping and scrollbars")
-            self.setWrapMode(QsciScintilla.WrapMode.WrapNone)
-            self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            logging.debug("Wrapping and scrollbars set up")
-            
-            logging.debug("Applying theming")
-            self.setPaper(QColor(window._themes["editor_theme"]))
-            self.setColor(QColor(window._themes["editor_fg"]))
-            self.setFont(QFont(window._themes["font"]))
-            logging.debug("Theming applied")
-            
-            logging.info("CodeEditor initialized successfully")
-        except Exception as e:
-            logging.exception(f"Error initializing CodeEditor: {e}")
-            raise  # Re-raise the exception to propagate it
+        super().__init__(window)
+        logging.debug("Calling QsciScintilla.__init__")
+         
+        self.window = window
+        self.setMarginType(0, QsciScintilla.MarginType.NumberMargin)
+        self.setMarginWidth(0, "0000") 
+        # Set up the editor
+        self.setUtf8(True)
+        self.setIndentationsUseTabs(False)
+        self.setTabWidth(4)
+        self.setIndentationGuides(True)
+        self.setTabIndents(True)
+        self.setAutoIndent(True)
+        self.setCaretLineVisible(True)
+        self.setCaretWidth(2)
+        
+        # Set up the lexer
+        self.lexer_manager = Lexers.LexerManager(window)
+        self.lexer_manager.apply_lexer("python")  # Default to Python lexer
+        
+        # Autocompletion
+        apis = QsciAPIs(self.lexer())
+        self.setAutoCompletionSource(QsciScintilla.AutoCompletionSource.AcsAll)
+        self.setAutoCompletionThreshold(1)
+        self.setAutoCompletionCaseSensitivity(True)
+        self.setWrapMode(QsciScintilla.WrapMode.WrapNone)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setAutoCompletionThreshold(1)
+        self.setAutoCompletionFillupsEnabled(True)
+
+        # Setting up lexers
+        self.setPaper(QColor(window._themes["editor_theme"]))
+        self.setColor(QColor(window._themes["editor_fg"]))
+        self.setFont(QFont(window._themes["font"]))
+
+        self.setTabWidth(4)
+        self.setMarginLineNumbers(1, True)
+        self.setAutoIndent(True)
+        self.setMarginWidth(1, "#0000")
+        left_margin_index = 0
+        left_margin_width = 7
+        self.setMarginsForegroundColor(QColor(window._themes["lines_fg"]))
+        self.setMarginsBackgroundColor(QColor(window._themes["lines_theme"]))
+        font_metrics = QFontMetrics(self.font())
+        left_margin_width_pixels = font_metrics.horizontalAdvance(" ") * left_margin_width
+        self.SendScintilla(self.SCI_SETMARGINLEFT, left_margin_index, left_margin_width_pixels)
+        self.setFolding(QsciScintilla.FoldStyle.BoxedTreeFoldStyle)
+        self.setMarginSensitivity(2, True)
+        self.setFoldMarginColors(
+            QColor(window._themes["margin_theme"]), QColor(window._themes["margin_theme"])
+        )
+        self.setBraceMatching(QsciScintilla.BraceMatch.StrictBraceMatch)
+        self.setCaretLineVisible(True)
+        self.setCaretLineBackgroundColor(QColor("#20d3d3d3"))
+        self.setWrapMode(QsciScintilla.WrapMode.WrapNone)
+        self.setAutoCompletionThreshold(1)
+        self.setBackspaceUnindents(True)
+        self.setIndentationGuides(True)
+        self.setReadOnly(False)
+
+        self.context_menu = QMenu(self)
+
+        self.encrypt_menu = QMenu("Encryption", self.context_menu)
+        self.context_menu.addAction("Cut        ").triggered.connect(self.cut)
+        self.context_menu.addAction("Copy").triggered.connect(self.copy)
+        self.context_menu.addAction("Paste").triggered.connect(self.paste)
+        self.context_menu.addAction("Select All").triggered.connect(self.selectAll)
+        self.context_menu.addSeparator()
+        self.context_menu.addAction("Calculate", self.calculate)
+        find_action = QAction("Find", self)
+        find_action.triggered.connect(self.show_search_dialog)
+        find_action.setShortcut(QKeySequence.StandardKey.Find)  # Setting shortcut to Ctrl+F
+        self.context_menu.addAction(find_action)
+        self.context_menu.addSeparator()
+
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
 
     def show_context_menu(self, point):
         self.context_menu.popup(self.mapToGlobal(point))
