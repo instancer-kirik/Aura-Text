@@ -44,7 +44,8 @@ from ..Components import powershell, terminal, statusBar, GitCommit, GitPush
 from .AuraText import CodeEditor
 from auratext.Components.TabWidget import TabWidget
 from .plugin_interface import Plugin
-from .theme_manager import ThemeManager, ThemeDownloader
+from .theme_manager import ThemeDownloader
+from .theme_manager import ThemeManager
 from .Lexers import LexerManager
 local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
 cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
@@ -111,7 +112,7 @@ class Window(QMainWindow):
                 splashScreen()
             else:
                 pass
-
+           
             logging.info("Setting up UI components")
             self.setup_ui()
             
@@ -133,6 +134,7 @@ class Window(QMainWindow):
         except Exception as e:
             logging.exception(f"Error during Window initialization: {e}")
 
+       
     def setup_ui(self):
         logging.info("Starting UI setup")
         try:
@@ -806,6 +808,8 @@ class Window(QMainWindow):
                 self.editors.append(self.current_editor)
                 self.tab_widget.addTab(self.current_editor, title)
                 self.tab_widget.setCurrentWidget(self.current_editor)
+        
+                
                 self.theme_manager.apply_theme_to_editor(self.current_editor)
                 
                 logging.info("Step 3: Applying default lexer")
@@ -845,7 +849,7 @@ class Window(QMainWindow):
                 self.apply_lexer("html")
             if ".py" in text:
                 self.py_temp()
-                self.apply_lexer("python")
+                self.apply_lexer("py")
             if ".css" in text:
                 self.css_temp()
                 self.apply_lexer("css")
