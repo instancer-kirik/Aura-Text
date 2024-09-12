@@ -4165,3 +4165,17 @@ Traceback (most recent call last):
     ^^^^^^^^^^^^^^^^^^
 AttributeError: 'Window' object has no attribute 'theme_manager'. Did you mean: 'lexer_manager'?
 2024-09-12 12:26:19,222 - root - INFO - New document created successfully
+2024-09-12 12:29:08,014 - root - INFO - Applying lexer for language: cpp
+2024-09-12 12:29:08,015 - root - ERROR - Uncaught exception
+Traceback (most recent call last):
+  File "x:\_Code\Python\Aura-Text\Aura-Text-5.0.0\auratext\Core\MenuConfig.py", line 69, in <lambda>
+    new_menu.addAction(file_type, lambda ft=file_type: window.create_file_from_template(ft))
+                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "x:\_Code\Python\Aura-Text\Aura-Text-5.0.0\auratext\Core\window.py", line 911, in create_file_from_template
+    self.apply_lexer(file_type[1:])  # Remove the dot from the file extension
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "x:\_Code\Python\Aura-Text\Aura-Text-5.0.0\auratext\Core\window.py", line 311, in apply_lexer
+    method()
+TypeError: LexerManager.cpp() missing 1 required positional argument: 'editor'
+2024-09-12 12:29:11,824 - root - INFO - Applying lexer for language: py
+2024-09-12 12:29:11,824 - root - INFO - No lexer found for language: py
