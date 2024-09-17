@@ -60,15 +60,18 @@ class Sidebar(QDockWidget):
         self.setFixedWidth(40)
         self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
         self.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.ai_chat_widget = AIChatWidget(self)
 
 
 # noinspection PyUnresolvedReferences
 # no inspection for unresolved references as pylance flags inaccurately sometimes
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QPushButton, QInputDialog, QMessageBox
+
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.Qsci import QsciScintilla
 import logging
 from GUX.ai_chat import AIChatWidget
+from GUX.diff_merger import DiffMergerWidget
 
 class AuraTextWindow(QWidget):
     def __init__(self, parent=None):
@@ -88,6 +91,15 @@ class AuraTextWindow(QWidget):
             self.tab_widget = QTabWidget(self)
             self.main_layout.addWidget(self.tab_widget)
             
+            # Create AI Chat Widget (initialize only once)
+            self.ai_chat_widget = AIChatWidget(self)
+            self.main_layout.addWidget(self.ai_chat_widget)
+            
+            # Button to edit instructions
+            edit_instructions_button = QPushButton("Edit AI Instructions")
+            edit_instructions_button.clicked.connect(self.edit_instructions)
+            self.main_layout.addWidget(edit_instructions_button)
+            
             self.editors = []
             self.current_editor = None
             
@@ -96,10 +108,6 @@ class AuraTextWindow(QWidget):
             
             logging.info("Loading plugins")
             self.load_plugins()
-            
-            # Create and add the AI Chat Widget
-            self.ai_chat_widget = AIChatWidget(self)
-            self.main_layout.addWidget(self.ai_chat_widget)
             
             logging.info("AuraTextWindow initialization complete")
         except Exception as e:
@@ -120,6 +128,16 @@ class AuraTextWindow(QWidget):
             
             # Create initial editor
             self.new_document()
+            
+            # Create a button to open the Diff Merger
+            self.diff_merger_button = QPushButton("Open Diff Merger")
+            self.diff_merger_button.clicked.connect(self.open_diff_merger)
+            self.main_layout.addWidget(self.diff_merger_button)
+            
+            # Add a button to create a new reference
+            self.add_reference_button = QPushButton("Add Reference")
+            self.add_reference_button.clicked.connect(self.add_new_reference)
+            self.main_layout.addWidget(self.add_reference_button)
             
             logging.info("UI setup complete")
         except Exception as e:
@@ -143,23 +161,27 @@ class AuraTextWindow(QWidget):
     def new_document(self, title="Untitled"):
         logging.info(f"Creating new document: {title}")
         try:
-            editor = self.create_editor()
-            if editor:
-                self.editors.append(editor)
-                index = self.tab_widget.addTab(editor, title)
-                self.tab_widget.setCurrentIndex(index)
-                self.current_editor = editor
-                editor.textChanged.connect(self.on_text_changed)
+            editor = QsciScintilla()
+            # Set up your QsciScintilla editor here (e.g., lexer, margins, etc.)
+            
+            self.editors.append(editor)
+            index = self.tab_widget.addTab(editor, title)
+            self.tab_widget.setCurrentIndex(index)
+            self.current_editor = editor
+            
+            # Connect the text changed signal
+            editor.textChanged.connect(self.on_text_changed)
         except Exception as e:
             logging.exception(f"Error creating new document: {e}")
 
     def change_text_editor(self, index):
         if 0 <= index < len(self.editors):
             self.current_editor = self.editors[index]
-            self.ai_chat_widget.set_current_file(
-                self.tab_widget.tabText(index),
-                self.current_editor.toPlainText()
-            )
+            if self.ai_chat_widget:
+                self.ai_chat_widget.set_current_file(
+                    self.tab_widget.tabText(index),
+                    self.current_editor.text()
+                )
 
     def remove_editor(self, index):
         if 0 <= index < len(self.editors):
@@ -184,7 +206,6 @@ class AuraTextWindow(QWidget):
                     content = file.read()
                 
                 self.new_document(title=os.path.basename(path))
-                logging.info("New document created successfully")
                 if self.current_editor:
                     self.current_editor.setText(content)
                     
@@ -317,9 +338,50 @@ class AuraTextWindow(QWidget):
         logging.debug(f"Action added: {action.text()}")
 
     def on_text_changed(self):
-        if self.current_editor:
+        if self.current_editor and self.ai_chat_widget:
             current_index = self.tab_widget.currentIndex()
             self.ai_chat_widget.set_current_file(
                 self.tab_widget.tabText(current_index),
-                self.current_editor.toPlainText()
+                self.current_editor.text()
             )
+
+    def open_diff_merger(self):
+        if not self.diff_merger_widget:
+            self.diff_merger_widget = DiffMergerWidget()
+        
+        if self.current_editor:
+            current_text = self.current_editor.text()
+            self.diff_merger_widget.x_box.text_edit.setPlainText(current_text)
+        
+        if self.ai_chat_widget:
+            ai_suggested_text = self.ai_chat_widget.chat_display.toPlainText()
+            self.diff_merger_widget.y_box.text_edit.setPlainText(ai_suggested_text)
+        
+        self.diff_merger_widget.show()
+        self.diff_merger_widget.show_diff()
+
+    def add_new_reference(self):
+        if self.current_editor:
+            cursor = self.current_editor.textCursor()
+            selected_text = cursor.selectedText()
+            if selected_text:
+                self.ai_chat_widget.add_chat_reference(selected_text[:30] + "...", selected_text)
+            else:
+                QMessageBox.warning(self, "No Selection", "Please select some text to add as a reference.")
+
+    def edit_instructions(self):
+        if self.ai_chat_widget:
+            current_instructions = self.ai_chat_widget.get_instructions()
+            new_instructions, ok = QInputDialog.getMultiLineText(
+                self, "Edit AI Instructions", "Enter new instructions:", current_instructions)
+            if ok:
+                self.ai_chat_widget.set_instructions(new_instructions)
+        else:
+            QMessageBox.warning(self, "Error", "AI Chat Widget not initialized")
+
+    def get_selected_text(self):
+        if self.current_editor:
+            return self.current_editor.selectedText()
+        return ""
+    def get_open_files(self):
+            return [self.tab_widget.tabText(i) for i in range(self.tab_widget.count())]
