@@ -47,8 +47,10 @@ from .plugin_interface import Plugin
 from .theme_manager import ThemeDownloader
 from .theme_manager import ThemeManager
 from .Lexers import LexerManager
-
-
+from HMC.download_manager import DownloadManager
+from GUX.ai_chat import AIChatWidget
+from PyQt6.QtWidgets import QTabWidget
+from GUX.diff_merger import DiffMergerWidget
 local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
 cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
 cfile = open(f"{local_app_data}/data/CPath_File.txt", "r+").read()
@@ -65,17 +67,27 @@ class Sidebar(QDockWidget):
 
 # noinspection PyUnresolvedReferences
 # no inspection for unresolved references as pylance flags inaccurately sometimes
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QPushButton, QInputDialog, QMessageBox
 
-from PyQt6.QtGui import QColor, QFont
-from PyQt6.Qsci import QsciScintilla
-import logging
-from GUX.ai_chat import AIChatWidget
-from GUX.diff_merger import DiffMergerWidget
+    def toggle_ai_chat(self):
+        if self.ai_chat_dock is None:
+            # Create the ai_chat_dock if it doesn't exist
+            self.ai_chat_dock = QDockWidget("AI Chat", self)
+            # ... set up the dock widget ...
+            self.addDockWidget(Qt.RightDockWidgetArea, self.ai_chat_dock)
+        
+        if self.ai_chat_dock.isVisible():
+            self.ai_chat_dock.hide()
+        else:
+            self.ai_chat_dock.show()
 
+   
 class AuraTextWindow(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, settings=None, download_manager=None, model_manager=None, diff_merger_widget=None):
         super().__init__(parent)
+        self.settings = settings
+        self.download_manager = download_manager
+        self.model_manager = model_manager
+        self.diff_merger_widget = diff_merger_widget
         logging.info("Starting AuraTextWindow initialization")
         try:
             self.local_app_data = local_app_data
@@ -84,21 +96,24 @@ class AuraTextWindow(QWidget):
             self.load_configurations()
             
             # Set up the main layout
-            self.main_layout = QVBoxLayout(self)
-            self.setLayout(self.main_layout)
+            self.layout = QVBoxLayout(self)
+            self.setLayout(self.layout)
             
             # Create and set up the tab widget
             self.tab_widget = QTabWidget(self)
-            self.main_layout.addWidget(self.tab_widget)
+            self.layout.addWidget(self.tab_widget)
             
-            # Create AI Chat Widget (initialize only once)
-            self.ai_chat_widget = AIChatWidget(self)
-            self.main_layout.addWidget(self.ai_chat_widget)
+            # Create AIChatWidget
+            self.ai_chat_widget = AIChatWidget(settings=self.settings, model_manager=self.model_manager, download_manager=self.download_manager)
             
-            # Button to edit instructions
-            edit_instructions_button = QPushButton("Edit AI Instructions")
-            edit_instructions_button.clicked.connect(self.edit_instructions)
-            self.main_layout.addWidget(edit_instructions_button)
+            # Create a button to toggle AI Chat visibility
+            self.toggle_ai_chat_button = QPushButton("Toggle AI Chat")
+            self.toggle_ai_chat_button.clicked.connect(self.toggle_ai_chat)
+            self.layout.addWidget(self.toggle_ai_chat_button)
+            
+            # Add AI Chat widget to layout (initially hidden)
+            self.layout.addWidget(self.ai_chat_widget)
+            self.ai_chat_widget.hide()
             
             self.editors = []
             self.current_editor = None
@@ -132,12 +147,12 @@ class AuraTextWindow(QWidget):
             # Create a button to open the Diff Merger
             self.diff_merger_button = QPushButton("Open Diff Merger")
             self.diff_merger_button.clicked.connect(self.open_diff_merger)
-            self.main_layout.addWidget(self.diff_merger_button)
+            self.layout.addWidget(self.diff_merger_button)
             
             # Add a button to create a new reference
             self.add_reference_button = QPushButton("Add Reference")
             self.add_reference_button.clicked.connect(self.add_new_reference)
-            self.main_layout.addWidget(self.add_reference_button)
+            self.layout.addWidget(self.add_reference_button)
             
             logging.info("UI setup complete")
         except Exception as e:
@@ -210,7 +225,8 @@ class AuraTextWindow(QWidget):
                     self.current_editor.setText(content)
                     
                     # Update AI Chat Widget with the new file
-                    self.ai_chat_widget.set_current_file(path, content)
+                    if self.ai_chat_widget:
+                        self.ai_chat_widget.set_current_file(path, content)
 
                     # Apply lexer based on file extension
                     _, ext = os.path.splitext(path)
@@ -369,19 +385,8 @@ class AuraTextWindow(QWidget):
             else:
                 QMessageBox.warning(self, "No Selection", "Please select some text to add as a reference.")
 
-    def edit_instructions(self):
-        if self.ai_chat_widget:
-            current_instructions = self.ai_chat_widget.get_instructions()
-            new_instructions, ok = QInputDialog.getMultiLineText(
-                self, "Edit AI Instructions", "Enter new instructions:", current_instructions)
-            if ok:
-                self.ai_chat_widget.set_instructions(new_instructions)
+    def toggle_ai_chat(self):
+        if self.ai_chat_widget.isVisible():
+            self.ai_chat_widget.hide()
         else:
-            QMessageBox.warning(self, "Error", "AI Chat Widget not initialized")
-
-    def get_selected_text(self):
-        if self.current_editor:
-            return self.current_editor.selectedText()
-        return ""
-    def get_open_files(self):
-            return [self.tab_widget.tabText(i) for i in range(self.tab_widget.count())]
+            self.ai_chat_widget.show()
