@@ -67,9 +67,10 @@ class Search(QDialog):
 from PyQt6.Qsci import QsciScintilla
 from PyQt6.QtGui import QColor
 import logging
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QTextEdit
+from PyQt6.QtGui import QPainter, QTextFormat
+from PyQt6.QtCore import QSize
 
-
-    
 class CodeEditor(QsciScintilla):
     def __init__(self, window):
         logging.info("Entering CodeEditor.__init__")
@@ -79,60 +80,126 @@ class CodeEditor(QsciScintilla):
             logging.debug("QsciScintilla.__init__ completed")
             
             self.window = window
-            logging.debug("Window assigned to self.window")
             
-            logging.debug("Setting up basic editor properties")
-            self.setUtf8(True)
-            self.setIndentationsUseTabs(False)
-            self.setTabWidth(4)
-            self.setIndentationGuides(True)
-            self.setTabIndents(True)
-            self.setAutoIndent(True)
-            self.setCaretLineVisible(True)
-            self.setCaretWidth(2)
-            logging.debug("Basic editor properties set")
+            # Set up basic editor properties
+            self.setup_editor()
             
-            logging.debug("Setting up margins")
-            self.setMarginType(0, QsciScintilla.MarginType.NumberMargin)
-            self.setMarginWidth(0, "0000")
-            self.setMarginsForegroundColor(QColor("#ff888888"))
-            self.setMarginLineNumbers(1, True)
-            logging.debug("Margins set up")
+            # Set up lexer
+            self.setup_lexer()
             
-            logging.debug("Setting up lexer")
-            self.lexer_manager = Lexers.LexerManager(window)
-            logging.debug("LexerManager created")
+            # Set up autocompletion
+            self.setup_autocompletion()
             
-            logging.debug("Applying default lexer")
-            self.lexer_manager.apply_lexer("python", self)  # Pass self as the editor
-            logging.debug("Default lexer applied")
+            # Set up line number area
+            self.line_number_area = LineNumberArea(self)
             
-            logging.debug("Setting up autocompletion")
-            apis = QsciAPIs(self.lexer())
-            self.setAutoCompletionSource(QsciScintilla.AutoCompletionSource.AcsAll)
-            self.setAutoCompletionThreshold(1)
-            self.setAutoCompletionCaseSensitivity(True)
-            self.setAutoCompletionFillupsEnabled(True)
-            logging.debug("Autocompletion set up")
+            # Set up file outline
+            self.file_outline_widget = FileOutlineWidget()
             
-            logging.debug("Setting up wrapping and scrollbars")
-            self.setWrapMode(QsciScintilla.WrapMode.WrapNone)
-            self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            logging.debug("Wrapping and scrollbars set up")
+            # Set up layout
+            layout = QVBoxLayout(self)
+            hbox = QHBoxLayout()
+            hbox.addWidget(self.line_number_area)
+            hbox.addWidget(self)
+            layout.addLayout(hbox)
+            layout.addWidget(self.file_outline_widget)
             
-            logging.debug("Applying theming")
-            self.setPaper(QColor(window._themes["editor_theme"]))
-            self.setColor(QColor(window._themes["editor_fg"]))
-            self.setFont(QFont(window._themes["font"]))
-            logging.debug("Theming applied")
+            # Connect signals
+            self.textChanged.connect(self.update_file_outline)
+            self.cursorPositionChanged.connect(self.highlight_current_line)
+            
+            # Apply initial theme
+            self.window.apply_theme_to_editor(self)
             
             logging.info("CodeEditor initialized successfully")
         except Exception as e:
             logging.exception(f"Error initializing CodeEditor: {e}")
-            raise  # Re-raise the exception to propagate it
+            raise
+
+    def setup_editor(self):
+        self.setUtf8(True)
+        self.setIndentationsUseTabs(False)
+        self.setTabWidth(4)
+        self.setIndentationGuides(True)
+        self.setTabIndents(True)
+        self.setAutoIndent(True)
+        self.setCaretLineVisible(True)
+        self.setCaretWidth(2)
+        self.setMarginType(0, QsciScintilla.MarginType.NumberMargin)
+        self.setMarginWidth(0, "0000")
+        self.setMarginsForegroundColor(QColor("#ff888888"))
+        self.setMarginLineNumbers(1, True)
+        self.setWrapMode(QsciScintilla.WrapMode.WrapNone)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+    def setup_lexer(self):
+        self.lexer_manager = Lexers.LexerManager(self.window)
+        self.lexer_manager.apply_lexer("python", self)
+
+    def setup_autocompletion(self):
+        apis = QsciAPIs(self.lexer())
+        self.setAutoCompletionSource(QsciScintilla.AutoCompletionSource.AcsAll)
+        self.setAutoCompletionThreshold(1)
+        self.setAutoCompletionCaseSensitivity(True)
+        self.setAutoCompletionFillupsEnabled(True)
+
+    def highlight_current_line(self):
+        extra_selections = []
+        if not self.isReadOnly():
+            selection = QTextEdit.ExtraSelection()
+            line_color = QColor(Qt.GlobalColor.yellow).lighter(160)
+            selection.format.setBackground(line_color)
+            selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
+            selection.cursor = self.textCursor()
+            selection.cursor.clearSelection()
+            extra_selections.append(selection)
+        self.setExtraSelections(extra_selections)
+
+    def update_file_outline(self):
+        text = self.text()
+        self.file_outline_widget.populate_file_outline(text)
+
+    def line_number_area_width(self):
+        digits = 1
+        max_num = max(1, self.lines())
+        while max_num >= 10:
+            max_num //= 10
+            digits += 1
+        space = 3 + self.fontMetrics().horizontalAdvance('9') * digits
+        return space
+
+    def update_line_number_area_width(self, _):
+        self.setMarginWidth(0, self.line_number_area_width())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        cr = self.contentsRect()
+        self.line_number_area.setGeometry(QRect(cr.left(), cr.top(), self.line_number_area_width(), cr.height()))
+
+    def lineNumberAreaPaintEvent(self, event):
+        painter = QPainter(self.line_number_area)
+        painter.fillRect(event.rect(), Qt.GlobalColor.lightGray)
+
+        block = self.firstVisibleBlock()
+        block_number = block.blockNumber()
+        top = self.blockBoundingGeometry(block).translated(self.contentOffset()).top()
+        bottom = top + self.blockBoundingRect(block).height()
+
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                number = str(block_number + 1)
+                painter.setPen(Qt.GlobalColor.black)
+                painter.drawText(0, int(top), self.line_number_area.width(), self.fontMetrics().height(),
+                                 Qt.AlignmentFlag.AlignRight, number)
+
+            block = block.next()
+            top = bottom
+            bottom = top + self.blockBoundingRect(block).height()
+            block_number += 1
 
     def show_context_menu(self, point):
+        logging.info("Showing context menu- not fully implemented")
         self.context_menu.popup(self.mapToGlobal(point))
 
     def show_search_dialog(self):
@@ -143,12 +210,11 @@ class CodeEditor(QsciScintilla):
         ModuleFile.calculate(self)
 
     def encode(self):
-        ModuleFile.encypt(self)
+        ModuleFile.encrypt(self)
 
     def decode(self):
         ModuleFile.decode(self)
 
-    # noinspection ReturnValueFromInit
     def search(self, string: str, cs: bool = False, forward: bool = True) -> None:
         """Seaches for string in the editor
 
@@ -191,18 +257,33 @@ class CodeEditor(QsciScintilla):
         """
         self.SendScintilla(self.SCI_SETSEL, pos, pos + length)
 
-    # noinspection
-    def _search(
-            self,
-            string: str,
-            cs: bool = False,
-            forward: bool = True,
-            start: int = -1,
-            end: int = -1,
-    ) -> None:
-        """Sets search for the string"""
+    def _search(self, string: str, cs: bool = False, forward: bool = True, start: int = -1, end: int = -1) -> None:
         search = self.SendScintilla
         search(self.SCI_SETTARGETSTART, start if forward else end)
         search(self.SCI_SETTARGETEND, end if forward else start)
         search(self.SCI_SETSEARCHFLAGS, self.SCFIND_MATCHCASE if cs else 0)
         return search(self.SCI_SEARCHINTARGET, len(string), bytes(string, "utf-8"))
+
+class LineNumberArea(QWidget):
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.editor = editor
+
+    def sizeHint(self):
+        return QSize(self.editor.line_number_area_width(), 0)
+
+    def paintEvent(self, event):
+        self.editor.lineNumberAreaPaintEvent(event)
+
+class FileOutlineWidget(QTreeWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setHeaderHidden(True)
+
+    def populate_file_outline(self, text):
+        self.clear()
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if line.strip().startswith('class ') or line.strip().startswith('def '):
+                item = QTreeWidgetItem([f"{i + 1}: {line.strip()}"])
+                self.addTopLevelItem(item)
