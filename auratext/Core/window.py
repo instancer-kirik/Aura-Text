@@ -57,6 +57,9 @@ from . import Lexers
 from PyQt6.QtGui import QKeySequence, QAction
 from PyQt6.QtWidgets import QMenuBar, QToolBar
 from PyQt6.QtCore import QDir
+from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
+from .AuraText import FileOutlineWidget
+
 local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
 cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
 cfile = open(f"{local_app_data}/data/CPath_File.txt", "r+").read()
@@ -177,6 +180,19 @@ class AuraTextWindow(QWidget):
             self.tab_widget.setTabsClosable(True)
             self.tab_widget.tabCloseRequested.connect(self.close_tab)
             content_layout.addWidget(self.tab_widget, 3)
+            
+            self.file_outline_widget = FileOutlineWidget()
+        
+            # Add the file outline widget to the layout
+            right_layout = QVBoxLayout()
+            right_layout.addWidget(self.tab_widget)
+            right_layout.addWidget(self.file_outline_widget)
+        
+            main_layout = QHBoxLayout()
+            main_layout.addWidget(self.file_tree_view)
+            main_layout.addLayout(right_layout)
+        
+            self.setLayout(main_layout)
      # Create AIChatWidget
             self.ai_chat_widget = AIChatWidget(settings=self.settings, model_manager=self.model_manager, download_manager=self.download_manager)
             
@@ -287,6 +303,7 @@ class AuraTextWindow(QWidget):
                 
                 # Connect the text changed signal
                 editor.textChanged.connect(self.on_text_changed)
+                editor.textChanged.connect(self.update_file_outline)
             else:
                 logging.error("Failed to create editor")
         except Exception as e:
@@ -628,6 +645,11 @@ class AuraTextWindow(QWidget):
             self.ai_chat_widget.hide()
         else:
             self.ai_chat_widget.show()
+
+    def update_file_outline(self):
+        if self.current_editor:
+            text = self.current_editor.text()
+            self.file_outline_widget.populate_file_outline(text)
 
 class Search(QDialog):
     def __init__(self, editor):
