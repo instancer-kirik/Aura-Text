@@ -2,13 +2,10 @@ import logging
 from auratext.Core.plugin_interface import Plugin
 
 class LogsPlugin(Plugin):
-    def __init__(self, window):
+    def __init__(self):
         logging.debug("Entering LogsPlugin.__init__")
         try:
-            super().__init__(window)
-            logging.debug("LogsPlugin: super().__init__(window) completed")
-            # Remove this line as it's redundant (already set in the parent class)
-            # self.window = window
+            
             logging.debug("LogsPlugin: Additional initialization completed")
         except Exception as e:
             logging.exception(f"Error in LogsPlugin.__init__: {e}")

@@ -17,9 +17,9 @@ class SettingsWindow(QDialog):
         super().__init__()
 
         self.splash_checkbox = QCheckBox("Show Adaptive Splash Screens")
-        self.expopen_checkbox = QCheckBox("Show Tips in Terminal")
+        self.expopen_checkbox = QCheckBox("Show Explorer on Startup")
         self.open_last_file_checkbox = QCheckBox("Open the last opened file at startup")
-        self.ttips_checkbox = QCheckBox("Show Explorer on Startup")
+        self.ttips_checkbox = QCheckBox("Show Tips in Terminal")
         with open(f"{local_app_data}/data/config.json", "r") as json_file:
             self._config = json.load(json_file)
 

@@ -4,7 +4,7 @@ import traceback
 import logging
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
-from auratext.Core.window import Window
+from auratext.Core.window import AuraTextWindow
 from qt_material import list_themes
 
 
@@ -48,15 +48,15 @@ def main():
         available_themes = list_themes()
         logging.info(f"Available themes: {', '.join(available_themes)}")
         
-        logging.info("Creating Window instance")
-        ex = Window()
-        logging.info("Window instance created")
+        # logging.info("Creating Window instance")
+        # ex = QWidget()
+        # logging.info("Window instance created")
         
-        ex.show()
-        logging.info("Window shown")
+        # ex.show()
+        # logging.info("Window shown")
         
-        # Test opening a file after a short delay
-        QTimer.singleShot(1000, lambda: test_open_file(ex))
+        # # Test opening a file after a short delay
+        # QTimer.singleShot(1000, lambda: test_open_file(ex))
         
         logging.info("Entering Qt event loop")
         sys.exit(app.exec())

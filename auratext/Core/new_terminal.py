@@ -14,8 +14,8 @@ import math
 import time
 import threading
 import traceback
-
 import qt
+
 import data
 import constants
 import functions

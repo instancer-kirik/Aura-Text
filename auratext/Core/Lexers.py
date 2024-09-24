@@ -78,9 +78,9 @@ from PyQt6.QtGui import QColor, QFont
 import logging
 
 class LexerManager:
-    def __init__(self, window):
+    def __init__(self, mm):
         logging.debug("Initializing LexerManager")
-        self.window = window
+        self.mm = mm
         self.lexers = {
             "python": QsciLexerPython,
             "cpp": QsciLexerCPP,

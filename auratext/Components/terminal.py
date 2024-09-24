@@ -17,7 +17,7 @@ from pyjokes import pyjokes
 now = datetime.now()
 
 if TYPE_CHECKING:
-    from auratext.Core.window import Window
+    from auratext.Core.window import AuraTextWindow
 
 example_cmds = ["'ascii Hello'", "'joke' for some byte sized humour", "'pip'",
                 "'cpath' to view the current project path", "'ctheme' to view the current theme", "'ipconfig'",
@@ -59,7 +59,7 @@ class TerminalHistoryDialog(QDialog):
 
 
 class AuraTextTerminalWidget(QWidget):
-    def __init__(self, window: Window):
+    def __init__(self, window: AuraTextWindow):
         super().__init__(window)
         self._window = window
 

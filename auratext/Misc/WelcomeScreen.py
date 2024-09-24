@@ -7,11 +7,11 @@ from PyQt6.QtWidgets import QPushButton, QWidget, QVBoxLayout, QLabel
 
 
 if TYPE_CHECKING:
-    from auratext.Core.window import Window
+    from auratext.Core.window import AuraTextWindow
 
 
 class WelcomeWidget(QWidget):
-    def __init__(self, window: Window):
+    def __init__(self, window: AuraTextWindow):
         super().__init__()
 
         layout = QVBoxLayout()
