@@ -229,6 +229,7 @@ QPlainTextEdit {{
 class Terminal(qt.QWidget):
     pty_data_received = qt.pyqtSignal(object)
     pty_add_to_buffer = qt.pyqtSignal(object)
+    error_occurred = qt.pyqtSignal(str)  # New signal for error reporting
 
     # Class variables
     name = None
@@ -241,12 +242,16 @@ class Terminal(qt.QWidget):
     context_menu = None
     current_working_directory = None
 
-    def __init__(self, parent, main_form, name):
+    def __init__(self, parent, main_form, project_manager, env_manager, secrets_manager):
         super().__init__(parent)
-        self.name = name
+        self.name = "name"
         self._parent = parent
         self.main_form = main_form
         self.current_icon = functions.create_icon('tango_icons/utilities-terminal.png')
+        self.project_manager = project_manager
+        self.env_manager = env_manager
+        self.secrets_manager = secrets_manager
+        self.termination_key = self.secrets_manager.get_secret('TERMINATION_KEY', 'default_secret_key')
 
         # Initialize components
         self.internals = components.internals.Internals(
@@ -315,6 +320,11 @@ class Terminal(qt.QWidget):
         layout.addWidget(self.output_widget)
 
         self.update_style()
+
+        self.input_widget.returnPressed.connect(self.check_termination_request)
+
+        self.error_thread = threading.Thread(target=self.error_listener, daemon=True)
+        self.error_thread.start()
 
     def __del__(self):
         self.pty_process = None
@@ -581,6 +591,64 @@ QWidget {{
 }}
         """)
         self.output_widget.update_style()
+
+    def start_process(self, project_name):
+        env_path = self.env_manager.get_environment_path(project_name)
+        if env_path:
+            if data.on_windows:
+                python_path = os.path.join(env_path, "Scripts", "python.exe")
+            else:
+                python_path = os.path.join(env_path, "bin", "python")
+            
+            if data.on_windows:
+                self.pty_process = winpty.PtyProcess.spawn(python_path)
+            else:
+                self.pty_process = ptyprocess.PtyProcess.spawn([python_path])
+        else:
+            # Use default Python interpreter
+            if data.on_windows:
+                self.pty_process = winpty.PtyProcess.spawn('python')
+            else:
+                self.pty_process = ptyprocess.PtyProcess.spawn(['python'])
+
+    def check_termination_request(self):
+        command = self.input_widget.text().strip()
+        if command.startswith("TERMINATE:"):
+            _, provided_key = command.split(":", 1)
+            if self.verify_termination_key(provided_key):
+                self.terminate_application()
+            else:
+                self.output_widget.append("Invalid termination key.")
+        else:
+            # Process the command as usual
+            self.process_command(command)
+
+    def verify_termination_key(self, provided_key):
+        hashed_key = hashlib.sha256(provided_key.encode()).hexdigest()
+        return hashed_key == hashlib.sha256(self.termination_key.encode()).hexdigest()
+
+    def terminate_application(self):
+        # Implement your application termination logic here
+        self.output_widget.append("Termination request accepted. Shutting down...")
+        # You might want to emit a signal here to notify the main application to shut down
+        qt.QApplication.instance().quit()
+
+    def error_listener(self):
+        while True:
+            try:
+                error_line = self.pty_process.readline()  # Assuming pty_process has a readline method
+                if error_line:
+                    self.error_occurred.emit(error_line.decode().strip())
+            except Exception as e:
+                self.error_occurred.emit(f"Error in terminal: {str(e)}")
+                break
+
+    def closeEvent(self, event):
+        # Ensure the error listener thread is stopped when the terminal is closed
+        if self.error_thread.is_alive():
+            # Implement a way to stop the thread safely
+            pass
+        super().closeEvent(event)
 
 
 def test():

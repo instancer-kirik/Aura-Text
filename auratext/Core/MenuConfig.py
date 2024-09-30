@@ -3,7 +3,7 @@ import json
 import os
 import sys
 from typing import Dict, Optional
-from auratext.Core.Modules import ModulesFile
+from AuraText.auratext.Core.Modules import ModulesFile
 from PyQt6.QtWidgets import QMenu, QWidget, QDockWidget
 from PyQt6.QtGui import QAction, QIcon
 from .plugin_interface import MenuPluginInterface
@@ -112,7 +112,7 @@ def create_file_menu(window: QWidget) -> QMenu:
     file_menu.addSeparator()
     file_menu.addAction("Summary", ModulesFile.summary).setWhatsThis("Get basic info of a file (Eg: Number of lines)")
     file_menu.addSeparator()
-    file_menu.addAction("Settings", window.expandSidebar__Settings)
+    # file_menu.addAction("Settings", pr)
     file_menu.addAction("Exit", window.close).setWhatsThis("Exit Aura Text")
     return file_menu
 
@@ -132,7 +132,7 @@ def create_edit_menu(window: QWidget) -> QMenu:
 def create_view_menu(window: QWidget) -> QMenu:
     view_menu = QMenu("&View", window)
     view_menu.addAction("Full Screen", window.fullscreen).setWhatsThis("Makes the window full screen")
-    view_menu.addAction("Project Directory", window.expandSidebar__Explorer).setWhatsThis("Shows the files and folder in your project as treeview")
+    view_menu.addAction("Project Directory", window.toggle_explorer_sidebar).setWhatsThis("Shows the files and folder in your project as treeview")
     view_menu.addSeparator()
 
     toggle_terminal_action = QAction("AT Terminal", window)

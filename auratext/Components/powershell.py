@@ -2,8 +2,8 @@ import os
 import re
 import subprocess
 
-from PyQt6.QtCore import QProcess, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QIcon, QKeyEvent, QTextCursor
+from PyQt6.QtCore import QProcess, Qt, pyqtSignal, QStringListModel
+from PyQt6.QtGui import QColor, QFont, QIcon, QKeyEvent, QTextCursor, QStandardItemModel, QStandardItem
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -13,7 +13,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from auratext.scripts.def_path import resource
+from PyQt6.QtWidgets import QCompleter, QDialog, QVBoxLayout, QListView,  QPushButton
+from AuraText.auratext.scripts.def_path import resource
+
 
 newTerminalIcon = resource(r"../media/terminal/new.svg")
 killTerminalIcon = resource(r"../media/terminal/remove.svg")
@@ -21,6 +23,7 @@ killTerminalIcon = resource(r"../media/terminal/remove.svg")
 
 class TerminalEmulator(QWidget):
     commandEntered = pyqtSignal(str)
+    errorOccurred = pyqtSignal(str) 
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -54,6 +57,20 @@ class TerminalEmulator(QWidget):
 
         self.addNewTab()
 
+        self.local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
+        self.history_file = os.path.join(self.local_app_data, "data", "terminal_history.txt")
+
+        # Initialize the completer
+        self.completer = QCompleter(self)
+        self.completer.setModel(QStringListModel())
+        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.activated.connect(self.insert_completion)
+
+        self.load_command_history()
+        self.update_completer()
+
     def set_terminal_font(self):
         font_families = [
             "Consolas",
@@ -70,7 +87,6 @@ class TerminalEmulator(QWidget):
         toolbar_layout.setContentsMargins(5, 0, 5, 0)
 
         toolbar_layout.addStretch(1)
-
         self.terminal_selector = QComboBox()
         self.terminal_selector.setStyleSheet("QComboBox { min-width: 150px; }")
         self.terminal_selector.currentIndexChanged.connect(self.switchTab)
@@ -224,7 +240,8 @@ class TerminalEmulator(QWidget):
         if not data.endswith("\n"):
             self.terminal.insertPlainText("\n")
         self.display_prompt()
-
+        self.errorOccurred.emit(data)  # Emit the error signal
+        
     def display_prompt(self):
         self.terminal.appendPlainText(self.prompt)
         self.terminal.moveCursor(QTextCursor.MoveOperation.End)
@@ -255,17 +272,6 @@ class TerminalEmulator(QWidget):
 
         self.terminal.setTextCursor(cursor)
 
-    def keyPressEvent(self, event: QKeyEvent | None):
-        if event is not None:
-            if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
-                self.execute_command()
-            elif event.key() == Qt.Key.Key_Up:
-                self.show_previous_command()
-            elif event.key() == Qt.Key.Key_Down:
-                self.show_next_command()
-            else:
-                super().keyPressEvent(event)
-
     def terminal_key_press_event(self, event: QKeyEvent):
         cursor = self.terminal.textCursor()
 
@@ -289,19 +295,31 @@ class TerminalEmulator(QWidget):
                 QTextCursor.MoveMode.MoveAnchor,
                 len(self.prompt),
             )
+        elif event.key() == Qt.Key.Key_Tab:
+            self.handle_tab_completion()
+            return
         else:
             if cursor.positionInBlock() >= len(self.prompt):
                 self.current_command += event.text()
                 QPlainTextEdit.keyPressEvent(self.terminal, event)
 
+        self.update_current_command()
+
     def execute_command(self):
-        self.terminal.appendPlainText("")
-        self.processes[self.current_process_index].write(
-            self.current_command.encode() + b"\n"
-        )
-        self.command_history.append(self.current_command)
-        self.history_index = len(self.command_history)
-        self.commandEntered.emit(self.current_command)
+        command = self.current_command.strip()
+        if command:
+            if command.startswith(('ctheme', 'ctime', 'cdate', 'joke', 'ascii', 'key', 'cproject', 'cpath')):
+                self.handle_custom_command(command)
+            else:
+                self.terminal.appendPlainText("")
+                self.processes[self.current_process_index].write(command.encode() + b"\n")
+            
+            if command not in self.command_history:
+                self.command_history.append(command)
+                self.history_index = len(self.command_history)
+                self.save_command_history()
+                self.update_completer()
+            
         self.current_command = ""
 
     def show_previous_command(self):
@@ -344,3 +362,95 @@ class TerminalEmulator(QWidget):
     def parse_ansi_codes(self, text):
         ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         return ansi_escape.sub("", text)
+
+    def load_command_history(self):
+        if os.path.exists(self.history_file):
+            with open(self.history_file, 'r') as f:
+                self.command_history = [line.strip() for line in f.readlines()]
+        self.history_index = len(self.command_history)
+        self.update_completer()
+
+    def save_command_history(self):
+        with open(self.history_file, 'w') as f:
+            f.write('\n'.join(self.command_history[-1000:]))  # Save last 1000 commands
+        self.update_completer()
+
+    def handle_custom_command(self, command):
+        if command == "ctheme":
+            self.terminal.appendPlainText(self._window._themes["theme"])
+        # elif command == "ctime":
+        #     self.terminal.appendPlainText(datetime.now().strftime("%H:%M:%S"))
+        # elif command == "cdate":
+        #     self.terminal.appendPlainText(str(datetime.now()))
+        # elif command == "joke":
+        #     self.terminal.appendPlainText(pyjokes.get_joke(language="en", category="neutral"))
+        # elif command.startswith("ascii"):
+        #     text = command.replace("ascii", "").strip()
+        #     self.terminal.appendPlainText(text2art(text))
+        elif command.startswith("key"):
+            # ... (implement key emulation) ...
+            pass
+        elif command in ("cproject", "cpath"):
+            # ... (implement project path display) ...
+            pass
+
+    def show_history_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Terminal History")
+        dialog.setMinimumSize(400, 300)
+
+        layout = QVBoxLayout(dialog)
+        list_view = QListView(dialog)
+        model = QStandardItemModel()
+        for cmd in self.command_history:
+            item = QStandardItem(cmd)
+            model.appendRow(item)
+        list_view.setModel(model)
+        layout.addWidget(list_view)
+
+        clear_button = QPushButton("Clear History", dialog)
+        clear_button.clicked.connect(self.clear_history)
+        layout.addWidget(clear_button)
+
+        dialog.exec()
+
+    def clear_history(self):
+        self.command_history.clear()
+        self.save_command_history()
+        self.terminal.appendPlainText("Command history cleared.")
+
+    def update_completer(self):
+        custom_commands = ['ctheme', 'ctime', 'cdate', 'joke', 'ascii', 'key', 'cproject', 'cpath']
+        all_commands = list(set(self.command_history + custom_commands))
+        model = self.completer.model()
+        if isinstance(model, QStringListModel):
+            model.setStringList(all_commands)
+        else:
+            self.completer.setModel(QStringListModel(all_commands))
+
+    def handle_tab_completion(self):
+        current_word = self.get_current_word()
+        self.completer.setCompletionPrefix(current_word)
+        if self.completer.completionCount() > 0:
+            self.completer.complete()
+
+    def get_current_word(self):
+        cursor = self.terminal.textCursor()
+        cursor.select(QTextCursor.SelectionType.WordUnderCursor)
+        return cursor.selectedText()
+
+    def insert_completion(self, completion):
+        cursor = self.terminal.textCursor()
+        extra = len(completion) - len(self.completer.completionPrefix())
+        cursor.movePosition(QTextCursor.MoveOperation.Left)
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfWord)
+        cursor.insertText(completion[-extra:])
+        self.terminal.setTextCursor(cursor)
+        self.update_current_command()
+
+    def update_current_command(self):
+        cursor = self.terminal.textCursor()
+        text = self.terminal.toPlainText()
+        command_start = text.rfind(self.prompt) + len(self.prompt)
+        self.current_command = text[command_start:].strip()
+        self.completer.setCompletionPrefix(self.current_command)
