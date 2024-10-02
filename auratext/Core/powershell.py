@@ -1,7 +1,7 @@
 import os
 import re
 import subprocess
-
+from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QProcess, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon, QKeyEvent, QTextCursor
 from PyQt6.QtWidgets import (
@@ -11,37 +11,62 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QSplitter,
+    
 )
-
+from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QPainter
+from PyQt6.QtCore import QPointF
+import time
 from ..scripts.def_path import resource
-
+from GUX.visual_effects import ParticleEffect, ParticleOverlay
+import random
+import logging
 newTerminalIcon = resource(r"../media/terminal/new.svg")
 killTerminalIcon = resource(r"../media/terminal/remove.svg")
 
 
 class TerminalEmulator(QWidget):
     commandEntered = pyqtSignal(str)
+    keyPressed = pyqtSignal(str)  # New signal for key presses
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, mm=None):
         super().__init__(parent)
+        self.mm = mm
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
-
+        
+        self.terminal = QPlainTextEdit(self)
+        self.layout.addWidget(self.terminal)
+        
+        try:
+            self.particle_effect = ParticleEffect(self)
+            self.particle_overlay = ParticleOverlay(self)
+            self.particle_overlay.setGeometry(self.rect())
+            self.particle_overlay.particle_effect = self.particle_effect
+            self.layout.addWidget(self.particle_overlay)
+        except Exception as e:
+            logging.error(f"Error initializing particle effects: {e}")
+            self.particle_effect = None
+            self.particle_overlay = None
+        
+        self.shake_offset = QPointF(0, 0)
+        self.shake_timer = QTimer(self)
+        self.shake_timer.timeout.connect(self.update_shake)
+        
+        self.typing_effect_enabled = True
+        self.typing_effect_speed = 100
+        self.typing_effect_particle_count = 10
+        self.last_key_press_time = 0
+        self.typing_speed = 0
+        
+        self.setup_terminal()
         self.setup_toolbar()
 
-        self.terminal = QPlainTextEdit(self)
-        self.set_terminal_font()
-        self.terminal.setStyleSheet(
-            """
-            QPlainTextEdit {
-                background-color: #1E1E1E;
-                color: white;
-            }
-        """
-        )
-        self.terminal.keyPressEvent = self.terminal_key_press_event
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        self.layout.addWidget(self.splitter)
 
-        self.layout.addWidget(self.terminal)
+        self.splitter.addWidget(self.terminal)
 
         self.processes = []
         self.current_process_index = -1
@@ -53,6 +78,33 @@ class TerminalEmulator(QWidget):
         self.prompt = "> "
 
         self.addNewTab()
+        self.load_typing_effect_settings()
+
+        # Add a timer for particle updates
+        self.particle_timer = QTimer(self)
+        self.particle_timer.timeout.connect(self.update_particles)
+        self.particle_timer.start(16)  # 60 FPS
+
+        # Set up logging for this class
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
+
+        # Connect the keyPressed signal to the InputManager if available
+        if self.mm and hasattr(self.mm, 'input_manager'):
+            self.keyPressed.connect(self.mm.input_manager.update_typing_speed)
+
+    def setup_terminal(self):
+        # Set up terminal appearance and behavior
+        self.set_terminal_font()
+        self.terminal.setStyleSheet(
+            """
+            QPlainTextEdit {
+                background-color: #1E1E1E;
+                color: white;
+            }
+        """
+        )
+        self.terminal.keyPressEvent = self.terminal_key_press_event
 
     def set_terminal_font(self):
         font_families = [
@@ -109,9 +161,24 @@ class TerminalEmulator(QWidget):
         )
         kill_terminal_button.clicked.connect(self.killCurrentTerminal)
 
+        toggle_effect_button = QPushButton("Toggle Typing Effect")
+        toggle_effect_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: white;
+                border: 1px solid white;
+                padding: 5px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        toggle_effect_button.clicked.connect(self.toggle_typing_effect)
+
         toolbar_layout.addWidget(self.terminal_selector)
         toolbar_layout.addWidget(new_terminal_button)
         toolbar_layout.addWidget(kill_terminal_button)
+        toolbar_layout.addWidget(toggle_effect_button)
         toolbar_layout.addStretch()
 
         self.layout.addWidget(toolbar)
@@ -245,44 +312,100 @@ class TerminalEmulator(QWidget):
 
         self.terminal.setTextCursor(cursor)
 
-    def keyPressEvent(self, event: QKeyEvent | None):
-        if event is not None:
+    def terminal_key_press_event(self, event: QKeyEvent):
+        self.logger.debug(f"Key pressed: {event.text()}")
+        self.keyPressed.emit(event.text())  # Emit the keyPressed signal
+        try:
+            current_time = time.time()
+            if self.last_key_press_time:
+                time_diff = current_time - self.last_key_press_time
+                self.typing_speed = 1 / time_diff if time_diff > 0 else 0
+            self.last_key_press_time = current_time
+
+            cursor = self.terminal.textCursor()
+            
+            # Ensure the cursor is at the end of the document
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self.terminal.setTextCursor(cursor)
+
             if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
                 self.execute_command()
+                self.queue_particles(cursor.position(), QColor(0, 255, 0), 20)  # Green particles for execution
+            elif event.key() == Qt.Key.Key_Backspace:
+                if len(self.current_command) > 0:
+                    self.current_command = self.current_command[:-1]
+                    cursor.deletePreviousChar()
+                    self.queue_particles(cursor.position(), QColor(255, 0, 0), 15)  # Red particles for deletion
+                    self.shake(200)  # Short shake for deletion
             elif event.key() == Qt.Key.Key_Up:
                 self.show_previous_command()
             elif event.key() == Qt.Key.Key_Down:
                 self.show_next_command()
             else:
-                super().keyPressEvent(event)
+                if event.text().isprintable():
+                    self.current_command += event.text()
+                    if self.typing_effect_enabled:
+                        self.type_with_effect(event.text())
+                    else:
+                        self.insert_character(event.text())
 
-    def terminal_key_press_event(self, event: QKeyEvent):
-        cursor = self.terminal.textCursor()
+            self.terminal.ensureCursorVisible()
+            event.accept()
+        except Exception as e:
+            print(f"Error in terminal_key_press_event: {e}")
 
-        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
-            self.execute_command()
-        elif event.key() == Qt.Key.Key_Backspace:
-            if len(self.current_command) > 0:
-                self.current_command = self.current_command[:-1]
-                cursor.deletePreviousChar()
-        elif event.key() == Qt.Key.Key_Up:
-            self.show_previous_command()
-        elif event.key() == Qt.Key.Key_Down:
-            self.show_next_command()
-        elif event.key() == Qt.Key.Key_Left:
-            if cursor.positionInBlock() > len(self.prompt):
-                cursor.movePosition(QTextCursor.MoveOperation.Left)
-        elif event.key() == Qt.Key.Key_Home:
-            cursor.movePosition(QTextCursor.MoveOperation.StartOfLine)
-            cursor.movePosition(
-                QTextCursor.MoveOperation.Right,
-                QTextCursor.MoveMode.MoveAnchor,
-                len(self.prompt),
-            )
+    def type_with_effect(self, text):
+        for char in text:
+            self.logger.debug(f"Typing with_effect: {char}")
+            QTimer.singleShot(random.randint(50, self.typing_effect_speed), lambda c=char: self.insert_character(c))
+
+    def insert_character(self, char):
+        self.logger.debug(f"Inserting character: {char}")
+        try:
+            cursor = self.terminal.textCursor()
+            cursor.insertText(char)
+            self.terminal.setTextCursor(cursor)
+            
+            rect = self.terminal.cursorRect(cursor)
+            pos = self.terminal.mapTo(self.particle_overlay, rect.center())
+            
+            self.queue_particles(pos, QColor(255, 255, 255), self.typing_effect_particle_count)
+            self.terminal.ensureCursorVisible()
+        except Exception as e:
+            print(f"Error in insert_character: {e}")
+
+    def queue_particles(self, pos, color, count):
+        QTimer.singleShot(0, lambda: self.add_particles(pos, color, count))
+
+    def add_particles(self, pos, color, count):
+        try:
+            self.particle_effect.add_particles(pos, color, count)
+        except Exception as e:
+            print(f"Error in add_particles: {e}")
+
+    def update_particles(self):
+        try:
+            self.particle_effect.update_particles()
+            self.particle_overlay.update()
+        except Exception as e:
+            print(f"Error in update_particles: {e}")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.particle_overlay.setGeometry(self.rect())
+
+    def update_shake(self):
+        self.shake_offset = QPointF(random.uniform(-2, 2), random.uniform(-2, 2))
+        if self.shake_timer.interval() > 16:
+            self.shake_timer.setInterval(self.shake_timer.interval() - 16)
         else:
-            if cursor.positionInBlock() >= len(self.prompt):
-                self.current_command += event.text()
-                QPlainTextEdit.keyPressEvent(self.terminal, event)
+            self.shake_timer.stop()
+            self.shake_offset = QPointF(0, 0)
+        self.particle_overlay.set_shake_offset(self.shake_offset)
+        self.update()
+
+    def shake(self, duration=500):
+        self.shake_timer.start(duration)
 
     def execute_command(self):
         self.terminal.appendPlainText("")
@@ -334,3 +457,18 @@ class TerminalEmulator(QWidget):
     def parse_ansi_codes(self, text):
         ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
         return ansi_escape.sub("", text)
+
+    def toggle_typing_effect(self):
+        self.typing_effect_enabled = not self.typing_effect_enabled
+
+    def load_typing_effect_settings(self):
+        if hasattr(self, 'mm') and hasattr(self.mm, 'settings_manager'):
+            settings_manager = self.mm.settings_manager
+            self.typing_effect_enabled = settings_manager.get_typing_effect_enabled()
+            self.typing_effect_speed = settings_manager.get_typing_effect_speed()
+            self.typing_effect_particle_count = settings_manager.get_typing_effect_particle_count()
+        else:
+            # Default values if settings_manager is not available
+            self.typing_effect_enabled = True
+            self.typing_effect_speed = 100
+            self.typing_effect_particle_count = 10

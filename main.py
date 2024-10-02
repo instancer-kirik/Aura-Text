@@ -4,7 +4,7 @@ import traceback
 import logging
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
-from auratext.Core.window import AuraTextWindow
+
 from qt_material import list_themes
 
 

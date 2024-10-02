@@ -32,6 +32,12 @@ from PyQt6.Qsci import (
     QsciLexerTCL,
     QsciLexerSRec,
     QsciLexerSpice,
+    # QsciLexerElixir,
+    # QsciLexerErlang,
+    # QsciLexerFSharp,
+    # QsciLexerGo,
+    # QsciLexerGroovy,
+    # QsciLexerHaskell,
 )
 from PyQt6.Qsci import (
     QsciLexerTeX,
@@ -40,6 +46,11 @@ from PyQt6.Qsci import (
     QsciLexerMakefile,
     QsciLexerMarkdown,
     QsciLexerFortran,
+   
+    QsciLexerHTML,
+    QsciLexerJava,
+    QsciLexerJSON,
+    
 )
 from PyQt6.QtGui import QColor, QFont
 
@@ -87,7 +98,38 @@ class LexerManager:
             "javascript": QsciLexerJavaScript,
             "html": QsciLexerHTML,
             "markdown": QsciLexerMarkdown,
-            # Add more lexers here as needed
+            "json": QsciLexerJSON,
+            "yaml": QsciLexerYAML,
+            "css": QsciLexerCSS,
+            "lua": QsciLexerLua,
+            "sql": QsciLexerSQL,
+            "pascal": QsciLexerPascal,
+            "postscript": QsciLexerPostScript,
+            "tcl": QsciLexerTCL,
+            "srec": QsciLexerSRec,
+            "spice": QsciLexerSpice,
+            "fortran": QsciLexerFortran,
+            "md": QsciLexerMarkdown,
+            "makefile": QsciLexerMakefile,
+            "verilog": QsciLexerVerilog,
+            "vhdl": QsciLexerVHDL,
+            "asm": QsciLexerAsm,
+            "bash": QsciLexerBash,
+            "batch": QsciLexerBatch,
+            "cmake": QsciLexerCMake,
+            "coffeescript": QsciLexerCoffeeScript,
+            # "elixir": QsciLexerElixir,
+            # "erlang": QsciLexerErlang,
+            # "fsharp": QsciLexerFSharp,
+            # "go": QsciLexerGo,
+            # "groovy": QsciLexerGroovy,
+            # "haskell": QsciLexerHaskell,
+            "html": QsciLexerHTML,
+            "java": QsciLexerJava,
+            "json": QsciLexerJSON,
+            "markdown": QsciLexerMarkdown,
+            
+            
         }
 
     def get_available_lexers(self):
@@ -121,6 +163,17 @@ class LexerManager:
         editor.setLexer(lexer)
         logging.debug("C++ lexer applied")
 
+    def json(self, editor):
+        logging.debug("Applying JSON lexer")
+        lexer = QsciLexerJSON(editor)
+        editor.setLexer(lexer)
+        logging.debug("JSON lexer applied")
+
+    def yaml(self, editor):
+        logging.debug("Applying YAML lexer")
+        lexer = QsciLexerYAML(editor)
+        editor.setLexer(lexer)
+        logging.debug("YAML lexer applied")
     # Add more lexer methods as needed
 
 class ColorCodeLexer(QsciLexerCustom):

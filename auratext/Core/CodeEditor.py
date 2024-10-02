@@ -11,7 +11,8 @@ from GUX.markdown_viewer import MarkdownViewer
 from .file_outline_widget import FileOutlineWidget
 from .search_and_line_number import Search
 from .Modules import ModulesFile
-
+from HMC.settings_manager import SettingsManager
+import random
 class CodeEditor(QWidget):
     def __init__(self, mm, parent=None):
         super().__init__(parent)
@@ -35,6 +36,11 @@ class CodeEditor(QWidget):
         self.setup_editor()
         self.setup_connections()
         self.setup_shortcuts()
+        self.setup_indentation_guides()
+        self.setup_block_selection()
+
+        self.settings_manager = mm.settings_manager
+        self.load_typing_effect_settings()
 
         logging.info("CodeEditor initialization complete")
 
@@ -77,6 +83,53 @@ class CodeEditor(QWidget):
         radial_menu_shortcut = QShortcut(QKeySequence("Ctrl+Space"), self)
         radial_menu_shortcut.activated.connect(self.show_radial_menu)
 
+    def setup_indentation_guides(self):
+        # Enable indentation guides
+        self.text_edit.setIndentationGuides(True)
+        
+        # Set the indentation guide color
+        self.text_edit.setIndentationGuidesBackgroundColor(QColor("#e0e0e0"))
+        self.text_edit.setIndentationGuidesForegroundColor(QColor("#c0c0c0"))
+
+        # Connect to the cursorPositionChanged signal to update indentation highlighting
+        self.text_edit.cursorPositionChanged.connect(self.highlight_indentation_block)
+
+    def highlight_indentation_block(self):
+        # Clear previous highlighting
+        self.text_edit.SendScintilla(QsciScintilla.SCI_SETINDICATORCURRENT, 1)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICATORCLEARRANGE, 0, self.text_edit.length())
+
+        # Get the current line and its indentation level
+        current_line, _ = self.text_edit.getCursorPosition()
+        current_indent = self.text_edit.indentation(current_line)
+
+        # Set up the indicator style for indentation highlighting
+        self.text_edit.SendScintilla(QsciScintilla.SCI_SETINDICATORCURRENT, 1)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETSTYLE, 1, QsciScintilla.INDIC_ROUNDBOX)
+        highlight_color = QColor(Qt.GlobalColor.lightGray)
+        highlight_color.setAlpha(40)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETFORE, 1, highlight_color.rgb() & 0xFFFFFF)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETALPHA, 1, highlight_color.alpha())
+
+        # Highlight the indentation block
+        start_line = current_line
+        end_line = current_line
+        
+        # Search upwards for the start of the block
+        while start_line > 0 and self.text_edit.indentation(start_line - 1) >= current_indent:
+            start_line -= 1
+
+        # Search downwards for the end of the block
+        total_lines = self.text_edit.lines()
+        while end_line < total_lines - 1 and self.text_edit.indentation(end_line + 1) >= current_indent:
+            end_line += 1
+
+        # Apply the highlighting
+        for line in range(start_line, end_line + 1):
+            line_start = self.text_edit.positionFromLineIndex(line, 0)
+            line_end = self.text_edit.positionFromLineIndex(line + 1, 0)
+            self.text_edit.SendScintilla(QsciScintilla.SCI_INDICATORFILLRANGE, line_start, line_end - line_start)
+
     def update_file_outline(self):
         text = self.text_edit.text()
         self.file_outline_widget.populate_file_outline(text)
@@ -94,6 +147,7 @@ class CodeEditor(QWidget):
         line_start = self.text_edit.positionFromLineIndex(line, 0)
         line_end = self.text_edit.positionFromLineIndex(line + 1, 0)
         self.text_edit.SendScintilla(QsciScintilla.SCI_INDICATORFILLRANGE, line_start, line_end - line_start)
+        self.highlight_indentation_block()  # Add this line to update indentation highlighting
 
     def update_markdown_preview(self):
         if self.current_language == 'markdown':
@@ -124,8 +178,9 @@ class CodeEditor(QWidget):
         file_extension = os.path.splitext(file_path)[1].lower()
         language_map = {
             '.py': 'python', '.md': 'markdown', '.cpp': 'cpp',
-            '.js': 'javascript', '.html': 'html',
+            '.js': 'javascript', '.html': 'html', '.ex': 'elixir', '.exs': 'elixir',
         }
+       
         language = language_map.get(file_extension, 'text')
         self.set_language(language)
         if language == 'markdown':
@@ -133,60 +188,30 @@ class CodeEditor(QWidget):
             self.markdown_viewer.show()
         else:
             self.markdown_viewer.hide()
-    def update_fileset_dropdown(self):
-        self.fileset_selector.clear()
-        self.fileset_selector.addItem("Select Fileset")
-        filesets = self.mm.vault_manager.get_all_filesets()
-        self.fileset_selector.addItems(filesets)
+   
+    
+    def on_file_path_changed(self, file_path):
+        self.file_path = file_path
+        self.set_language_from_file_path(file_path)
+      
+    def on_fileset_changed(self, file_path):
+        self.file_path = file_path
+        self.set_language_from_file_path(file_path)
+
     def set_language(self, language):
         if self.current_language != language:
             self.current_language = language
             self.mm.lexer_manager.apply_lexer(language, self.text_edit)
 
-    def on_fileset_changed(self, fileset_name):
-        if fileset_name != "Select Fileset":
-            files = self.mm.vault_manager.get_fileset(fileset_name)
-            self.open_files_in_fileset(files)
     def on_text_changed(self):
         # Handle text changes, e.g., update file outline, markdown preview, etc.
         pass
-    def open_files_in_fileset(self, files):
-        for file in files:
-            file_path = os.path.join(self.vault_path, file)
-            self.load_file(file_path)
     def isModified(self):
         return self.text_edit.isModified()
     def set_file_path(self, path):
         self.file_path = path
         logging.info(f"File path set to: {path}")
-    def open_files_in_fileset(self, fileset_name):
-        files = self.mm.vault_manager.get_fileset(fileset_name)
-        if not files:
-            logging.warning(f"No files in the fileset: {fileset_name}")
-            return
-
-        for file_path in files:
-            full_path = os.path.join(self.mm.vault_manager.vault_path, file_path)
-            if not os.path.exists(full_path):
-                logging.warning(f"File not found: {full_path}")
-                continue
-
-            existing_editor = self.find_editor_by_file_path(full_path)
-            if existing_editor:
-                self.mm.editor_manager.set_current_editor(existing_editor)
-            else:
-                new_editor = self.mm.editor_manager.new_document()
-                new_editor.load_file(full_path)
-                self.mm.editor_manager.set_current_editor(new_editor)
-
-        logging.info(f"Opened {len(files)} files from fileset {fileset_name}.")
-
-    def find_editor_by_file_path(self, file_path):
-        for editor in self.mm.editor_manager.editors:
-            if editor.file_path == file_path:
-                return editor
-        return None
-
+   
     def show_context_menu(self, point):
         logging.info("Showing context menu- not fully implemented")
         self.context_menu.popup(self.mapToGlobal(point))
@@ -317,3 +342,88 @@ class CodeEditor(QWidget):
 
     def setModified(self, modified):
         self._is_modified = modified
+
+    def setup_block_selection(self):
+        # Connect mouse double click event to block selection method
+        self.text_edit.mouseDoubleClickEvent = self.on_mouse_double_click
+
+        # Define significant keywords for different languages
+        self.significant_keywords = {
+            'python': r'\b(def|class|if|for|while|try|with)\b',
+            'javascript': r'\b(function|class|if|for|while|try|switch)\b',
+            'java': r'\b(class|interface|enum|if|for|while|try|switch)\b',
+            'cpp': r'\b(class|struct|enum|if|for|while|try|switch)\b',
+            'elixir': r'\b(def|defp|defmodule|if|case|cond|for|with)\b',
+        }
+    def on_mouse_double_click(self, event):
+        # Call the original mouse double click event
+        QsciScintilla.mouseDoubleClickEvent(self.text_edit, event)
+
+        # Check if it's a left double click
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Get the position of the click
+            pos = self.text_edit.SendScintilla(QsciScintilla.SCI_POSITIONFROMPOINT, event.x(), event.y())
+            line, index = self.text_edit.lineIndexFromPosition(pos)
+
+            # Check if the click is on a significant keyword
+            if self.is_significant_line(line):
+                self.highlight_code_block(line)
+
+    def is_significant_line(self, line):
+        import re
+        text = self.text_edit.text(line)
+        pattern = self.significant_keywords.get(self.current_language, r'')
+        return re.match(pattern, text.strip()) is not None
+
+    def highlight_code_block(self, start_line):
+        # Clear previous block highlight
+        self.text_edit.SendScintilla(QsciScintilla.SCI_SETINDICATORCURRENT, 2)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICATORCLEARRANGE, 0, self.text_edit.length())
+
+        # Set up the indicator style for block highlighting
+        self.text_edit.SendScintilla(QsciScintilla.SCI_SETINDICATORCURRENT, 2)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETSTYLE, 2, QsciScintilla.INDIC_ROUNDBOX)
+        highlight_color = QColor(Qt.GlobalColor.yellow)
+        highlight_color.setAlpha(40)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETFORE, 2, highlight_color.rgb() & 0xFFFFFF)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETALPHA, 2, highlight_color.alpha())
+
+        # Find the end of the block
+        start_indent = self.text_edit.indentation(start_line)
+        end_line = start_line
+        total_lines = self.text_edit.lines()
+        
+        if self.current_language in ['python', 'elixir']:
+            # For Python and Elixir, use indentation to determine block end
+            while end_line < total_lines - 1:
+                end_line += 1
+                if self.text_edit.indentation(end_line) <= start_indent and self.text_edit.text(end_line).strip():
+                    break
+        else:
+            # For other languages, use brace matching
+            brace_count = 0
+            for i in range(start_line, total_lines):
+                line_text = self.text_edit.text(i)
+                brace_count += line_text.count('{') - line_text.count('}')
+                if brace_count == 0 and i > start_line:
+                    end_line = i
+                    break
+
+        # Apply the highlighting
+        start_pos = self.text_edit.positionFromLineIndex(start_line, 0)
+        end_pos = self.text_edit.positionFromLineIndex(end_line + 1, 0)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICATORFILLRANGE, start_pos, end_pos - start_pos)
+
+    def load_typing_effect_settings(self):
+        self.typing_effect_enabled = self.settings_manager.get_typing_effect_enabled()
+        self.typing_effect_speed = self.settings_manager.get_typing_effect_speed()
+        self.typing_effect_particle_count = self.settings_manager.get_typing_effect_particle_count()
+
+    def type_with_effect(self, text):
+        for char in text:
+            QTimer.singleShot(random.randint(50, self.typing_effect_speed), lambda c=char: self.insert_character(c))
+
+    def insert_character(self, char):
+        cursor = self.text_edit.textCursor()
+        cursor.insertText(char)
+        self.text_edit.setTextCursor(cursor)

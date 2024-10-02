@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QStatusBar,
     QLabel)
+from HMC.vault_manager import Vault
 # Add the parent directory to the Python path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
@@ -75,6 +76,7 @@ cfile = open(f"{local_app_data}/data/CPath_File.txt", "r+").read()
 from PyQt6.QtGui import QShortcut, QMouseEvent
 from GUX.file_tree_view import FileTreeView
 from PyQt6.QtWidgets import QStackedWidget
+from HMC.project_manager import ProjectsManagerWidget
 class CircularTabBar(QTabBar):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -135,20 +137,94 @@ class AuraTextWindow(QMainWindow):
     def __init__(self, mm, parent=None):
         super().__init__(parent)
         self.mm = mm
+        self.current_vault = None
+        if self.mm and self.mm.vault_manager:
+            self.current_vault = self.mm.vault_manager.get_current_vault()
+        self.action_handlers = mm.action_handlers
+        self.setup_ui()
+
+    def set_vault(self, vault: Vault):
+        if vault is None:
+            logging.warning("Attempted to set None as the current vault.")
+            return
+
+        self.current_vault = vault
+        self.update_ui_for_vault()
+        
+        self.setWindowTitle(f"AuraText - {vault.name}")
+        if vault.path:
+            loaded_vault = self.load_vault(str(vault.path))
+            if loaded_vault:
+                loaded_vault.load_index()
+            else:
+                logging.warning(f"Failed to load vault at path: {vault.path}")
+        else:
+            logging.warning("Vault has no path set.")
+    def update_ui_for_vault(self):
+        if self.current_vault:
+            self.setWindowTitle(f"AuraText - {self.current_vault.name}")
+            self.update_workspace_selector()
+
+    def update_workspace_selector(self):
+        if hasattr(self, 'workspace_selector') and self.current_vault:
+            self.workspace_selector.clear()
+            workspace_names = self.mm.workspace_manager.get_workspace_names(self.current_vault.path)
+            self.workspace_selector.addItems(workspace_names)
+
+ 
+    def setup_ui(self):
+        self.setWindowTitle("AuraText")
+        self.setup_menu_bar()
+        # Add other UI setup code here (e.g., central widget, status bar, etc.)
+
+    def setup_menu_bar(self):
+        menubar = QMenuBar(self)
+        self.setMenuBar(menubar)
+        MenuConfig.do_configure_menuBar(self, menubar)
+
+    def set_project(self, project):
+        # Implement method to set the current project
+        pass
+
+    def __init__(self, parent=None, mm=None):
+        super().__init__(parent)
+        self.mm = mm
+        #STOP DELETING THIS
+        self.action_handlers = ActionHandlers(self.mm)#
+        #STOP DELETING THIS
+        
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
+        self.current_vault = None
+        if self.mm and self.mm.vault_manager:
+            self.current_vault = self.mm.vault_manager.get_current_vault()
+        # Initialize attributes that might be used in setup_menu_bar
+        self.project_manager = getattr(mm, 'project_manager', None)
+        if self.project_manager is None:
+            self.logger.warning("project_manager not found in mm, some features may be limited")
+        
+        try:
+            self.setup_menu_bar()
+        except Exception as e:
+            self.logger.error(f"Error in setup_menu_bar: {str(e)}")
+            self.logger.error(traceback.format_exc())
+        
         self.file_system_model = self.mm.file_manager.create_file_system_model()
+        self.workspace_selector = None  # Initialize it as None
+        self.fileset_selector = None  # Initialize it as None
+        self.project_selector = None  # Initialize it as None
         self.setup_ui_components()
         self.setup_connections()
         self.setup_shortcuts()
-        self.setup_menu_bar()
 
     def setup_ui_components(self):
-        self.action_handlers = ActionHandlers(self.mm)
+        
         self.action_group = QActionGroup(self)
         self.cursor_manager = self.mm.cursor_manager
 
      
-        self.file_tree_view = FileTreeView(self.file_system_model)
-        self.vault_explorer = FileTreeView(self.file_system_model)
+        self.file_tree_view = FileTreeView(self.file_system_model, self)
+        self.vault_explorer = FileTreeView(self.file_system_model, self)
         self.tab_widget = ImprovedTabWidget(self)
         self.setCentralWidget(self.tab_widget)
 
@@ -158,14 +234,23 @@ class AuraTextWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.terminal_dock)
 
         self.create_docks()
+        self.setup_fileset_selector()
         self.setup_file_explorer()
+        
+        self.setup_workspace_selector()
+        
 
     def create_docks(self):
+        self.projects_manager_widget = self.create_projects_manager_widget()
         self.explorer_dock = self.mm.widget_manager.create_dock("File Explorer", self.file_tree_view, self)
+        self.projects_manager_dock = self.mm.widget_manager.create_dock("Projects Manager", self.projects_manager_widget, self)
+        self.vaults_manager_dock = self.mm.widget_manager.create_dock("Vaults Manager", self.mm.widget_manager.VaultsManagerWidget(self.mm), self)
+        self.ai_chat_dock = self.mm.widget_manager.create_dock("AI Chat", self.mm.widget_manager.AIChatWidget(self.mm), self)
+
         self.add_dock_widget(self.explorer_dock, "File Explorer", Qt.DockWidgetArea.LeftDockWidgetArea)
-        self.projects_manager_dock = self.mm.widget_manager.create_dock(self)
-        self.vaults_manager_dock = self.mm.widget_manager.create_dock(self)
-        self.ai_chat_dock = self.mm.widget_manager.create_dock(self)
+        self.add_dock_widget(self.projects_manager_dock, "Projects Manager", Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.add_dock_widget(self.vaults_manager_dock, "Vaults Manager", Qt.DockWidgetArea.RightDockWidgetArea)
+        self.add_dock_widget(self.ai_chat_dock, "AI Chat", Qt.DockWidgetArea.RightDockWidgetArea)
 
     def setup_connections(self):
         if hasattr(self.mm, 'editor_manager') and self.mm.editor_manager is not None:
@@ -176,22 +261,28 @@ class AuraTextWindow(QMainWindow):
             logging.warning("Editor manager not available. Some functionalities may be limited.")
         self.terminal_emulator.commandEntered.connect(self.handle_terminal_command)
         self.terminal_emulator.errorOccurred.connect(self.handle_terminal_error)
-        self.file_tree_view.clicked.connect(self.file_tree_item_clicked)
+        self.file_tree_view.file_selected.connect(self.open_file_from_explorer)
+        
         self.tab_widget.currentChanged.connect(self.on_current_tab_changed)
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
-        self.workspace_selector.currentTextChanged.connect(self.on_workspace_changed)
-        self.fileset_selector.currentTextChanged.connect(self.on_fileset_changed)
+        if self.workspace_selector:
+            self.workspace_selector.currentTextChanged.connect(self.on_workspace_changed)
+        if self.fileset_selector is not None:
+            self.fileset_selector.currentTextChanged.connect(self.on_fileset_changed)
+        else:
+            logging.warning("fileset_selector is None, skipping connection setup")
         
         if hasattr(self, 'file_explorer'):
             self.file_explorer.file_selected.connect(self.open_file_from_explorer)
         if hasattr(self, 'vault_explorer'):
             self.vault_explorer.file_selected.connect(self.open_file_from_explorer)
         
-        self.toggle_ai_chat_button.clicked.connect(self.toggle_ai_chat)
+        if hasattr(self, 'toggle_ai_chat_button'):
+            self.toggle_ai_chat_button.clicked.connect(self.toggle_ai_chat)
         
         self.tab_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tab_widget.customContextMenuRequested.connect(self.show_radial_menu)
-      
+    
 
     def setup_shortcuts(self):
         # File operations
@@ -252,17 +343,25 @@ class AuraTextWindow(QMainWindow):
         self.mm.file_manager.update_explorer_views(self.file_explorer, self.vault_explorer)
  
     def setup_workspace_selector(self):
-        workspaces = self.mm.workspace_manager.get_workspace_names()
-        self.workspace_selector.clear()
-        self.workspace_selector.addItems(workspaces)
-        active_workspace = self.mm.workspace_manager.get_active_workspace()
-        if active_workspace:
-            self.workspace_selector.setCurrentText(active_workspace.name)
+        self.workspace_selector = QComboBox(self)
+        # Add workspaces to the selector
+        if self.current_vault:
+            workspaces = self.current_vault.get_workspace_names()
+            self.workspace_selector.addItems(workspaces)
+            # Set the current workspace
+            current_workspace = self.mm.workspace_manager.get_active_workspace()
+            if current_workspace in workspaces:
+                self.workspace_selector.setCurrentText(current_workspace)                      
+        else:
+            self.workspace_selector.setEnabled(False)
+            # Add the workspace selector to your UI (e.g., to a toolbar or status bar)
+        # self.statusBar().addPermanentWidget(self.workspace_selector)
 
     def setup_fileset_selector(self):
-        filesets = self.mm.vault_manager.get_all_filesets()
-        self.fileset_selector.clear()
-        self.fileset_selector.addItems(filesets)
+        if self.fileset_selector is not None:
+            filesets = self.mm.vault_manager.get_all_filesets()
+            self.fileset_selector.clear()
+            self.fileset_selector.addItems(filesets)
         # You might want to set a current fileset here if you have that concept
         
     def setup_ai_chat(self):
@@ -299,8 +398,8 @@ class AuraTextWindow(QMainWindow):
                     QMessageBox.warning(self, "Error", "Failed to add vault. Name may already exist.")
 
     def remove_vault(self):
-        vaults = list(self.mm.vault_manager.vaults["vaults"].keys())
-        name, ok = QInputDialog.getItem(self, "Remove Vault", "Select vault to remove:", vaults, 0, False)
+        vault_names = self.mm.vault_manager.get_vault_names()
+        name, ok = QInputDialog.getItem(self, "Remove Vault", "Select vault to remove:", vault_names, 0, False)
         if ok and name:
             if self.mm.vault_manager.remove_vault(name):
                 QMessageBox.information(self, "Vault Removed", f"Removed vault: {name}")
@@ -309,8 +408,8 @@ class AuraTextWindow(QMainWindow):
                 QMessageBox.warning(self, "Error", "Failed to remove vault")
 
     def rename_vault(self):
-        vaults = list(self.mm.vault_manager.vaults["vaults"].keys())
-        old_name, ok = QInputDialog.getItem(self, "Rename Vault", "Select vault to rename:", vaults, 0, False)
+        vault_names = self.mm.vault_manager.get_vault_names()
+        old_name, ok = QInputDialog.getItem(self, "Rename Vault", "Select vault to rename:", vault_names, 0, False)
         if ok and old_name:
             new_name, ok = QInputDialog.getText(self, "Rename Vault", "Enter new vault name:")
             if ok and new_name:
@@ -343,7 +442,6 @@ class AuraTextWindow(QMainWindow):
 
     def set_tab_title(self, index, title):
         self.tab_widget.setTabText(index, title)
-
     def get_tab_count(self):
         return self.tab_widget.count()
 
@@ -382,8 +480,7 @@ class AuraTextWindow(QMainWindow):
         
         # Apply theme to all dock widgets
         for dock in self.findChildren(QDockWidget):
-            self.mm.theme_manager.apply_theme_to_widget(dock, theme)
-        
+            self.mm.theme_manager.apply_theme_to_widget(dock)
         # Apply theme to the menu bar and status bar
         self.mm.theme_manager.apply_theme_to_widget(self.menuBar(), theme)
         if self.statusBar():
@@ -544,67 +641,8 @@ class AuraTextWindow(QMainWindow):
 
 
     def create_projects_manager_widget(self):
-        projects_widget = QWidget()
-        projects_layout = QVBoxLayout(projects_widget)
-
-        # Project selector
-        self.project_selector = QComboBox()
-        projects = self.mm.project_manager.get_projects()
-        self.project_selector.addItems(projects)
-        self.project_selector.currentTextChanged.connect(self.switch_project)
-        projects_layout.addWidget(self.project_selector)
-
-        # Recent projects button
-        self.recent_projects_button = QPushButton("Recent Projects")
-      
-        self.recent_projects_button.clicked.connect(self.show_recent_projects_menu)
-        projects_layout.addWidget(self.recent_projects_button)
-
-        # Create the recent projects menu (but don't add it to the layout)
-        self.recent_projects_menu = QMenu(self)
-        self.update_recent_projects_menu()
-
-        # Add/Remove project buttons
-        button_layout = QHBoxLayout()
-        add_project_button = QPushButton("Add Project")
-        add_project_button.clicked.connect(self.add_project)
-        remove_project_button = QPushButton("Remove Project")
-        remove_project_button.clicked.connect(self.remove_project)
-        rename_project_button = QPushButton("Rename Project")
-        rename_project_button.clicked.connect(self.rename_project)
-        button_layout.addWidget(add_project_button)
-        button_layout.addWidget(remove_project_button)
-        button_layout.addWidget(rename_project_button)
-        projects_layout.addLayout(button_layout)
-
-        # Build and Run buttons
-        build_run_layout = QHBoxLayout()
-        build_button = QPushButton("Build Project")
-        build_button.clicked.connect(self.build_project)
-        run_button = QPushButton("Run Project")
-        run_button.clicked.connect(self.run_project)
-        build_run_layout.addWidget(build_button)
-        build_run_layout.addWidget(run_button)
-        projects_layout.addLayout(build_run_layout)
-
-        # Configure buttons
-        configure_layout = QHBoxLayout()
-        configure_build_button = QPushButton("Configure Build")
-        configure_build_button.clicked.connect(self.configure_build)
-        configure_run_button = QPushButton("Configure Run")
-        configure_run_button.clicked.connect(self.configure_run)
-        configure_layout.addWidget(configure_build_button)
-        configure_layout.addWidget(configure_run_button)
-        projects_layout.addLayout(configure_layout)
-
-        # Create a dock widget for the projects manager
-        self.projects_manager_dock = QDockWidget("Projects Manager", self)
-        self.projects_manager_dock.setWidget(projects_widget)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.projects_manager_dock)
-
-        # Connect the visibility toggle
-        self.projects_manager_dock.visibilityChanged.connect(self.update_project_selector)
-
+        self.projects_manager_widget = ProjectsManagerWidget(parent=self, cccore=self.mm)
+        #self.projects_manager_dock = self.mm.widget_manager.add_dock_widget(self.projects_manager_widget, "Projects Manager", Qt.DockWidgetArea.LeftDockWidgetArea)
     def show_recent_projects_menu(self):
         self.recent_projects_menu.exec(self.recent_projects_button.mapToGlobal(self.recent_projects_button.rect().bottomLeft()))
 
@@ -633,16 +671,7 @@ class AuraTextWindow(QMainWindow):
                 else:
                     QMessageBox.warning(self, "Error", f"Failed to remove project '{current_project}'.")
 
-    def toggle_projects_manager(self):
-        if self.projects_manager_dock is None:
-            self.create_projects_manager_widget()
-        
-        if self.projects_manager_dock:
-            self.projects_manager_dock.setVisible(not self.projects_manager_dock.isVisible())
-        else:
-            QMessageBox.warning(self, "Error", "Failed to create Projects Manager widget")
-      
-  
+    
     def load_project_state(self, project_name):
         open_files = self.mm.settings_manager.get_value(f"open_files_{project_name}", [])
         for file_path in open_files:
@@ -650,11 +679,11 @@ class AuraTextWindow(QMainWindow):
     def update_vault_selector(self):
         if self.vault_selector is not None:
             self.vault_selector.clear()
-            vaults = list(self.mm.vault_manager.vaults["vaults"].keys())
-            self.vault_selector.addItems(vaults)
+            vault_names = self.mm.vault_manager.get_vault_names()
+            self.vault_selector.addItems(vault_names)
             current_vault = self.mm.vault_manager.get_current_vault()
             if current_vault:
-                self.vault_selector.setCurrentText(current_vault)
+                self.vault_selector.setCurrentText(current_vault.name)
 
     def switch_project(self, project_name):
         if self.mm.project_manager.set_current_project(project_name):
@@ -674,7 +703,7 @@ class AuraTextWindow(QMainWindow):
    # Update any other UI elements that depend on the current project
         # For example, update workspace selector, open files, etc.
     def update_explorer_views(self):
-        root_path = self.mm.vault_manager.get_current_vault_path()
+        root_path = self.mm.vault_manager.get_vault_path()
         if root_path and os.path.exists(root_path):
             self.file_system_model.setRootPath(root_path)
             self.vault_explorer.set_root_path(root_path)
@@ -695,8 +724,8 @@ class AuraTextWindow(QMainWindow):
    
     
     def rename_vault(self):
-        vaults = list(self.mm.vault_manager.vaults["vaults"].keys())
-        old_name, ok = QInputDialog.getItem(self, "Rename Vault", "Select vault to rename:", vaults, 0, False)
+        vault_names = self.mm.vault_manager.get_vault_names()
+        old_name, ok = QInputDialog.getItem(self, "Rename Vault", "Select vault to rename:", vault_names, 0, False)
         if ok and old_name:
             new_name, ok = QInputDialog.getText(self, "Rename Vault", "Enter new vault name:")
             if ok and new_name:
@@ -710,11 +739,11 @@ class AuraTextWindow(QMainWindow):
     def update_vault_selector(self):
         if hasattr(self, 'vault_selector'):
             self.vault_selector.clear()
-            vaults = list(self.mm.vault_manager.vaults["vaults"].keys())
-            self.vault_selector.addItems(vaults)
+            vault_names = self.mm.vault_manager.get_vault_names()
+            self.vault_selector.addItems(vault_names)
             current_vault = self.mm.vault_manager.get_current_vault()
             if current_vault:
-                self.vault_selector.setCurrentText(current_vault)
+                self.vault_selector.setCurrentText(current_vault.name)
 
     def add_current_file_to_fileset(self):
         current_editor = self.mm.editor_manager.current_editor
@@ -727,6 +756,7 @@ class AuraTextWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Error", "No file is currently open")
 
+    
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.RightButton:
             self.show_radial_menu(event.pos())
@@ -775,7 +805,11 @@ class AuraTextWindow(QMainWindow):
         self.update_explorer_views()
     def on_project_switch(self, new_project_path):
         self.update_explorer_views()
+        
+        
     def on_workspace_changed(self, new_workspace_path):
+        new_workspace_name = self.mm.workspace_manager.switch_workspace(new_workspace_path)
+        self.mm.workspace_manager.set_active_workspace(new_workspace_name)
         logging.info(f"Workspace changed to: {new_workspace_path}")
         self.update_explorer_views()
     def closeEvent(self, event):
@@ -872,6 +906,20 @@ class AuraTextWindow(QMainWindow):
         view_menu = self.menubar.addMenu("View")
         project_menu = self.menubar.addMenu("Project")
 
+        project_actions = [
+            ("New Project", self.new_project),
+            ("Open Project", self.open_project),
+        ]
+        
+        if self.project_manager:
+            project_actions.append(("Close Project", self.project_manager.close_project))
+        else:
+            self.logger.warning("project_manager not available, skipping Close Project action")
+        
+        project_actions.append(("Project Manager", self.toggle_project_manager))
+        
+        self.add_menu_actions(project_menu, project_actions)
+
         self.add_menu_actions(file_menu, [
             ("New", self.action_handlers.new_file),
             ("Open", self.action_handlers.open_file),
@@ -882,6 +930,13 @@ class AuraTextWindow(QMainWindow):
             ("Cut", self.action_handlers.cut),
             ("Copy", self.action_handlers.copy),
             ("Paste", self.action_handlers.paste),
+        ])
+
+        self.add_menu_actions(project_menu, [
+            ("New Project", self.new_project),
+            ("Open Project", self.open_project),
+            ("Close Project", self.mm.project_manager.close_project),
+            ("Project Manager", self.toggle_project_manager),
         ])
 
     def add_menu_actions(self, menu, actions):
@@ -916,9 +971,53 @@ class AuraTextWindow(QMainWindow):
             logging.info("No last project found. Skipping project initialization.")
 
     def add_dock_widget(self, dock, name, area):
-        # If you have a custom add_dock_widget method in AuraTextWindow, use it here
-        # Otherwise, use the default addDockWidget method
         if dock is not None:
             self.addDockWidget(area, dock)
         else:
             logging.error(f"Failed to add dock widget: {name}")
+
+    def toggle_project_manager(self):
+        if hasattr(self, 'project_manager_dock'):
+            if self.project_manager_dock.isVisible():
+                self.project_manager_dock.hide()
+            else:
+                self.project_manager_dock.show()
+        else:
+            self.project_manager_dock = QDockWidget("Project Manager", self)
+            self.project_manager_widget = ProjectsManagerWidget(self.mm)
+            self.project_manager_dock.setWidget(self.project_manager_widget)
+            self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_manager_dock)
+    def refresh_vault_index(self):
+        if self.current_vault:
+            self.current_vault.update_index()
+    def load_vault(self, vault_path):
+        if self.mm.vault_manager:
+            self.current_vault = self.mm.vault_manager.get_vault_by_path(vault_path)
+            if self.current_vault:
+                self.update_ui_for_vault()
+                self.refresh_vault_explorer()
+            else:
+                logging.warning(f"No vault found at path: {vault_path}")
+        else:
+            logging.error("Vault manager not initialized")
+        return self.current_vault
+    def refresh_vault_explorer(self):
+        logging.debug(f"Refreshing vault explorer. Current vault: {self.current_vault}")
+        if hasattr(self, 'vault_explorer') and self.current_vault:
+            logging.debug(f"Vault path: {self.current_vault.path}, Type: {type(self.current_vault.path)}")
+            model = QFileSystemModel()
+            vault_path = str(self.current_vault.path)  # Convert WindowsPath to string
+            logging.debug(f"Converted vault path: {vault_path}, Type: {type(vault_path)}")
+            model.setRootPath(vault_path)
+            self.vault_explorer.setModel(model)
+            
+            # Use str(vault_path) to ensure we're passing a string
+            index = model.index(str(vault_path))
+            if index.isValid():
+                self.vault_explorer.setRootIndex(index)
+                logging.debug("Successfully set root index for vault explorer")
+            else:
+                logging.error(f"Invalid index for vault path: {vault_path}")
+        else:
+            logging.warning("Cannot refresh vault explorer: No current vault or vault explorer.")
+            # Update any UI elements that depend on the index
