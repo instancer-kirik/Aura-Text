@@ -60,7 +60,7 @@ class ThemeDownloader(QWidget):
         if response.status_code == 200:
             content = response.json()
             files_info = [file["name"].split(".")[0] for file in content if file["type"] == "file"]
-            self.list_widget.clear()
+            self.list_widget.clear() 
             for file_info in files_info:
                 item = self.list_widget.addItem(file_info)
                 download_button = QPushButton("Download", self)

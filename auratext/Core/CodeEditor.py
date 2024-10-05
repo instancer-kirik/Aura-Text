@@ -14,6 +14,7 @@ from .Modules import ModulesFile
 from HMC.settings_manager import SettingsManager
 import random
 class CodeEditor(QWidget):
+ 
     def __init__(self, mm, parent=None):
         super().__init__(parent)
         self.mm = mm
@@ -28,6 +29,7 @@ class CodeEditor(QWidget):
         self.file_outline_widget = FileOutlineWidget(self)
         self.markdown_preview = QTextBrowser(self)
         self.fileset_selector = QComboBox(self)
+        self.setup_fileset_selector()
 
         self._is_modified = False
         self.text_edit.textChanged.connect(self._handle_text_changed)
@@ -43,12 +45,20 @@ class CodeEditor(QWidget):
         self.load_typing_effect_settings()
 
         logging.info("CodeEditor initialization complete")
-
     def setup_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)  # Remove any margins
+        layout.setSpacing(0)  # Remove spacing between widgets
+
         self.text_edit = QsciScintilla(self)
         layout.addWidget(self.text_edit)
 
+        # If you have other widgets in the CodeEditor, add them here
+        # For example:
+        # self.line_number_area = LineNumberArea(self.text_edit)
+        # layout.addWidget(self.line_number_area)
+
+        self.setLayout(layout)
     def setup_editor(self):
         self.text_edit.setUtf8(True)
         self.text_edit.setIndentationsUseTabs(False)
@@ -142,7 +152,7 @@ class CodeEditor(QWidget):
         self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETSTYLE, 0, QsciScintilla.INDIC_STRAIGHTBOX)
         highlight_color = QColor(Qt.GlobalColor.yellow)
         highlight_color.setAlpha(40)
-        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETFORE, 0, highlight_color.rgb() & 0xFFFFFF)
+        self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETFORE, 0, highlight_color.rgb() & 0x984141)
         self.text_edit.SendScintilla(QsciScintilla.SCI_INDICSETALPHA, 0, highlight_color.alpha())
         line_start = self.text_edit.positionFromLineIndex(line, 0)
         line_end = self.text_edit.positionFromLineIndex(line + 1, 0)
@@ -157,9 +167,11 @@ class CodeEditor(QWidget):
     def set_language(self, language):
         if self.current_language != language:
             self.current_language = language
-            self.mm.lexer_manager.apply_lexer(language, self)
+            self.mm.lexer_manager.apply_lexer(language, self)#wow what code
             self.toggle_markdown_preview(language == 'markdown')
-
+    def set_lexer(self, lexer):
+        self.lexer = lexer
+        self.lexer.apply_lexer(self.text_edit)
     def toggle_markdown_preview(self, show):
         if show:
             self.markdown_preview.show()
@@ -168,9 +180,11 @@ class CodeEditor(QWidget):
             self.markdown_preview.hide()
             self.update_timer.stop()
 
+    
     def load_file(self, file_path):
-        with open(file_path, 'r') as f:
-            self.text_edit.setText(f.read())
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+        self.text_edit.setText(content)
         self.file_path = file_path
         self.set_language_from_file_path(file_path)
 
@@ -255,10 +269,7 @@ class CodeEditor(QWidget):
                 if image_name not in self.image_map:
                     self.image_map[image_name] = image_path
 
-    def show_radial_menu(self):
-        cursor_pos = self.text_edit.cursorRect().center()
-        global_pos = self.mapToGlobal(cursor_pos)
-        self.parent().file_manager.show_radial_menu(global_pos)
+    
     def setModified(self, modified):
         self.text_edit.setModified(modified)
     # Proxy methods to maintain compatibility with QsciScintilla
@@ -327,12 +338,8 @@ class CodeEditor(QWidget):
         self._is_modified = True
 
     
-    def update_file_outline(self):
-        # Implement this method to update the file outline
-        pass
-    def update_markdown_preview(self):
-        # Implement this method to update the markdown preview
-        pass
+    
+   
     def show_radial_menu(self):
         cursor_pos = self.text_edit.cursorRect().center()
         global_pos = self.mapToGlobal(cursor_pos)
@@ -340,9 +347,7 @@ class CodeEditor(QWidget):
     def isModified(self):
         return self._is_modified
 
-    def setModified(self, modified):
-        self._is_modified = modified
-
+    
     def setup_block_selection(self):
         # Connect mouse double click event to block selection method
         self.text_edit.mouseDoubleClickEvent = self.on_mouse_double_click
@@ -414,6 +419,92 @@ class CodeEditor(QWidget):
         end_pos = self.text_edit.positionFromLineIndex(end_line + 1, 0)
         self.text_edit.SendScintilla(QsciScintilla.SCI_INDICATORFILLRANGE, start_pos, end_pos - start_pos)
 
+
+
+    def apply_theme(self, theme_data):
+        # Apply general colors
+        colors = theme_data.get("colors", {})
+        self.text_edit.setPaper(QColor(colors.get("backgroundColor", "#FFFFFF")))
+        self.text_edit.setColor(QColor(colors.get("textColor", "#000000")))
+
+        # Apply sidebar colors
+        sidebar_colors = theme_data.get("sidebar", {})
+        sidebar_bg = sidebar_colors.get("sidebarBackground", "#F0F0F0")
+        sidebar_text = sidebar_colors.get("sidebarText", "#000000")
+        sidebar_highlight = sidebar_colors.get("sidebarHighlight", "#C0C0C0")
+
+        # Apply to line number area
+        self.text_edit.setMarginsForegroundColor(QColor(sidebar_text))
+        self.text_edit.setMarginsBackgroundColor(QColor(sidebar_bg))
+
+        # Apply to folding area if available
+        if hasattr(self.text_edit, "setFoldMarginColors"):
+            self.text_edit.setFoldMarginColors(QColor(sidebar_bg), QColor(sidebar_highlight))
+
+        # Apply current line highlight
+        current_line_color = QColor(colors.get("currentLineColor", "#E8E8E8"))
+        self.text_edit.setCaretLineVisible(True)
+        self.text_edit.setCaretLineBackgroundColor(current_line_color)
+
+        # Apply selection color
+        selection_color = QColor(colors.get("selectionColor", "#ADD6FF"))
+        self.text_edit.setSelectionBackgroundColor(selection_color)
+
+        # Apply caret (cursor) color
+        caret_color = QColor(colors.get("caretColor", "#000000"))
+        self.text_edit.setCaretForegroundColor(caret_color)
+
+        # Apply indentation guides color
+        indent_guide_color = QColor(colors.get("indentGuideColor", "#E0E0E0"))
+        self.text_edit.setIndentationGuidesBackgroundColor(indent_guide_color)
+        self.text_edit.setIndentationGuidesForegroundColor(indent_guide_color)
+
+        # Apply bracket matching color
+        brace_match_color = QColor(colors.get("braceMatchingColor", "#B4EEB4"))
+        self.text_edit.setMatchedBraceBackgroundColor(brace_match_color)
+        self.text_edit.setMatchedBraceForegroundColor(QColor(colors.get("textColor", "#000000")))
+
+        # Apply edge (long line indicator) color
+        edge_color = QColor(colors.get("edgeColor", "#FF0000"))
+        self.text_edit.setEdgeColor(edge_color)
+
+        # Set edge mode and column
+        self.text_edit.setEdgeMode(QsciScintilla.EdgeMode.EdgeLine)
+        self.text_edit.setEdgeColumn(80)  # You can make this configurable
+
+        # Apply fold margin colors
+        fold_margin_color = QColor(colors.get("foldMarginColor", "#D0D0D0"))
+        self.text_edit.setFoldMarginColors(fold_margin_color, fold_margin_color)
+
+        # Apply whitespace visibility
+        if colors.get("showWhitespace", False):
+            self.text_edit.setWhitespaceVisibility(QsciScintilla.WhitespaceVisibility.WsVisible)
+        else:
+            self.text_edit.setWhitespaceVisibility(QsciScintilla.WhitespaceVisibility.WsInvisible)
+
+        # Apply end-of-line visibility
+        if colors.get("showEOL", False):
+            self.text_edit.setEolVisibility(True)
+        else:
+            self.text_edit.setEolVisibility(False)
+
+        # Apply lexer colors (syntax highlighting)
+        if self.lexer:
+            lexer_colors = theme_data.get("lexer", {})
+            for style, color in lexer_colors.items():
+                self.lexer.setColor(QColor(color), style)
+
+        # Apply toolbar and context menu colors
+        toolbar_color = QColor(theme_data.get("toolbar", {}).get("toolbarColor", "#f0f0f0"))
+        toolbar_separator_color = QColor(theme_data.get("toolbar", {}).get("toolbarSeparatorColor", "#c0c0c0"))
+        menu_color = QColor(theme_data.get("toolbar", {}).get("menuColor", "#f0f0f0"))
+        menu_text_color = QColor(theme_data.get("toolbar", {}).get("menuTextColor", "#000000"))
+        menu_border_color = QColor(theme_data.get("toolbar", {}).get("menuBorderColor", "#c0c0c0"))
+        menu_hover_color = QColor(theme_data.get("toolbar", {}).get("menuHoverColor", "#c0c0c0"))
+
+        # Refresh the editor to apply all changes
+        self.text_edit.refresh()
+
     def load_typing_effect_settings(self):
         self.typing_effect_enabled = self.settings_manager.get_typing_effect_enabled()
         self.typing_effect_speed = self.settings_manager.get_typing_effect_speed()
@@ -427,3 +518,10 @@ class CodeEditor(QWidget):
         cursor = self.text_edit.textCursor()
         cursor.insertText(char)
         self.text_edit.setTextCursor(cursor)
+
+    def setup_fileset_selector(self):
+        if self.fileset_selector is not None:
+            self.fileset_selector.currentTextChanged.connect(self.on_fileset_changed)
+            logging.debug("FileSet selector initialized and connected")
+        else:
+            logging.warning("FileSet selector is None, unable to set up")

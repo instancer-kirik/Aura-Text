@@ -58,6 +58,7 @@ class LanguageMenuManager:
         return language_menu
 
 def do_configure_menuBar(window: QWidget, menu_bar: QMenuBar) -> Optional[QMenu]:
+    
     try:
         menubar = menu_bar
 
@@ -65,6 +66,7 @@ def do_configure_menuBar(window: QWidget, menu_bar: QMenuBar) -> Optional[QMenu]
             "File": create_file_menu(window),
             "Edit": create_edit_menu(window),
             "View": create_view_menu(window),
+            "Project": create_project_menu(window),
             "Code": create_code_menu(window),
             "Tools": create_tools_menu(window),
             "Preferences": create_preferences_menu(window),
@@ -85,7 +87,7 @@ def do_configure_menuBar(window: QWidget, menu_bar: QMenuBar) -> Optional[QMenu]
     finally:
         logging.info("Exiting configure_menuBar function")
 
-def create_file_menu(window: QWidget) -> QMenu:
+def create_file_menu(window) -> QMenu:
     file_menu = QMenu("&File", window)
     file_menu.addAction("New", window.action_handlers.new_file).setWhatsThis("Create a New File")
     
@@ -112,9 +114,25 @@ def create_file_menu(window: QWidget) -> QMenu:
     file_menu.addSeparator()
     file_menu.addAction("Summary", ModulesFile.summary).setWhatsThis("Get basic info of a file (Eg: Number of lines)")
     file_menu.addSeparator()
-    # file_menu.addAction("Settings", pr)
     file_menu.addAction("Exit", window.close).setWhatsThis("Exit Aura Text")
     return file_menu
+
+def create_project_menu(window: QWidget) -> QMenu:
+    project_menu = QMenu("&Project", window)
+    
+    new_project_menu = project_menu.addMenu("New Project")
+    new_project_menu.addAction("Empty Project", window.action_handlers.new_project)
+    new_project_menu.addAction("From Template", window.action_handlers.new_project_from_template)
+    new_project_menu.addAction("From Version Control", window.action_handlers.new_project_from_vcs)
+
+    project_menu.addAction("Open Project", window.action_handlers.open_project)
+    project_menu.addAction("Open Project as Treeview", window.open_project_as_treeview)
+    
+    project_menu.addSeparator()
+    project_menu.addAction("Close Project", window.action_handlers.close_project)
+    project_menu.addAction("Project Settings", window.action_handlers.show_project_settings)
+
+    return project_menu
 
 def create_edit_menu(window: QWidget) -> QMenu:
     edit_menu = QMenu("&Edit", window)
@@ -252,3 +270,4 @@ def load_plugins(window: QWidget, sections: Dict[str, QMenu]) -> None:
         # except Exception as e:
         #     logging.error(f"Error loading plugin {plugin_module_name}: {e}")
            
+    
