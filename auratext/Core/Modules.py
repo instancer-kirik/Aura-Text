@@ -46,14 +46,14 @@ class CodeSnippets:
     @staticmethod
     def snippets_gen(editor):
         snippet_text = editor.selectedText()
-        name = str(filedialog.asksaveasfilename(title="Select file", defaultextension=".py"))
+        name = str(filedialog.asksaveasfilename(title="Select Snippet file", defaultextension=".py"))
         file = open(name, "w")
         file.write(snippet_text)
 
     @staticmethod
     def snippets_open(editor):
         file_dir = filedialog.askopenfilename(
-            title="Select file",
+            title="Select Snippet file",
         )
         ext = file_dir.split(".")[-1]
         if file_dir:
@@ -82,7 +82,7 @@ class ModulesFile:
             )
 
 
-    def encypt(self):
+    def encrypt(self):
         sample_string = self.selectedText()
         if sample_string != "":
             sample_string_bytes = sample_string.encode("ascii")
@@ -204,7 +204,7 @@ class ModulesFile:
     def save_document(self):
         try:
             # a = self.tab_widget.
-            name = str(filedialog.asksaveasfilename(title="Select file", defaultextension=".py"))
+            name = str(filedialog.asksaveasfilename(title="Select save file", defaultextension=".py"))
             file = open(name, "w")
             text = self.current_editor.text()
             file.write(text)
@@ -232,7 +232,7 @@ class ModulesFile:
 
     def open_document(self):
         file_dir = filedialog.askopenfilename(
-            title="Select file",
+            title="Select open1 file",
         )
         ext = file_dir.split(".")[-1]
         image_extensions = ["png", "jpg", "jpeg", "ico", "gif", "bmp"]

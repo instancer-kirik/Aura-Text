@@ -93,11 +93,12 @@ class LexerManager:
         logging.debug("Initializing LexerManager")
         self.mm = mm
         self.lexers = {
-            "python": QsciLexerPython,
+            "py": QsciLexerPython,
             "cpp": QsciLexerCPP,
             "javascript": QsciLexerJavaScript,
             "html": QsciLexerHTML,
-            "markdown": QsciLexerMarkdown,
+           # "markdown": QsciLexerMarkdown,
+            "md": QsciLexerMarkdown,
             "json": QsciLexerJSON,
             "yaml": QsciLexerYAML,
             "css": QsciLexerCSS,
@@ -109,7 +110,7 @@ class LexerManager:
             "srec": QsciLexerSRec,
             "spice": QsciLexerSpice,
             "fortran": QsciLexerFortran,
-            "md": QsciLexerMarkdown,
+            
             "makefile": QsciLexerMakefile,
             "verilog": QsciLexerVerilog,
             "vhdl": QsciLexerVHDL,
@@ -141,40 +142,19 @@ class LexerManager:
             logging.warning("No editor provided to apply lexer to")
             return
 
-        try:
-            method = getattr(self, language, None)
-            if method:
-                method(editor)
-                logging.debug(f"Lexer for {language} applied successfully")
-            else:
-                logging.warning(f"No lexer method found for language: {language}")
-        except Exception as e:
-            logging.exception(f"Error applying lexer for {language}: {e}")
+        lexer_class = self.lexers.get(language)
+        if lexer_class:
+            try:
+                lexer = lexer_class(editor)
+                editor.set_lexer(lexer)
+                logging.info(f"Lexer for {language} applied successfully")
+            except Exception as e:
+                logging.exception(f"Error applying lexer for {language}: {e}")
+        else:
+            logging.warning(f"No lexer found for language: {language}")
 
-    def python(self, editor):
-        logging.debug("Applying Python lexer")
-        lexer = QsciLexerPython(editor)
-        editor.setLexer(lexer)
-        logging.debug("Python lexer applied")
-
-    def cpp(self, editor):
-        logging.debug("Applying C++ lexer")
-        lexer = QsciLexerCPP(editor)
-        editor.setLexer(lexer)
-        logging.debug("C++ lexer applied")
-
-    def json(self, editor):
-        logging.debug("Applying JSON lexer")
-        lexer = QsciLexerJSON(editor)
-        editor.setLexer(lexer)
-        logging.debug("JSON lexer applied")
-
-    def yaml(self, editor):
-        logging.debug("Applying YAML lexer")
-        lexer = QsciLexerYAML(editor)
-        editor.setLexer(lexer)
-        logging.debug("YAML lexer applied")
-    # Add more lexer methods as needed
+    # Remove individual language methods like python, cpp, json, yaml
+    # as they are no longer needed with the updated apply_lexer method.
 
 class ColorCodeLexer(QsciLexerCustom):
     def __init__(self, parent=None):

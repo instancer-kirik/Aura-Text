@@ -3,7 +3,8 @@ import json
 import requests
 import shutil
 from qt_material import list_themes, apply_stylesheet
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QListWidget, QPushButton, QMessageBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QListWidget, QPushButton, QMessageBox, QTabWidget
+from GUX.theme_builder import ThemeBuilderWidget  # Import the ThemeBuilderWidget
 
 class ThemeManager:
     def __init__(self, local_app_data):

@@ -2,7 +2,7 @@
 name = "aura-text"
 version = "2.0.0"
 description = "IDE built with PySide6"
-authors = ["Rohan Kishore (@rohankishore on GitHub)"]
+authors = ["Rohan Kishore (@rohankishore on GitHub)", Kirik (@instancer-kirik on GitHub)]
 license = "MIT"
 readme = "README.md"
 packages = [{include = "aura_text"}]

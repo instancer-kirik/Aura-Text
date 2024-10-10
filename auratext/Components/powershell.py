@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
+import logging
 from PyQt6.QtWidgets import QCompleter, QDialog, QVBoxLayout, QListView,  QPushButton
 from AuraText.auratext.scripts.def_path import resource
 
@@ -142,8 +142,8 @@ class TerminalEmulator(QWidget):
         self.terminal_selector.setCurrentIndex(index)
 
         local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
-        cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
-
+        #cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
+        cpath = ""
         self.start_powershell(index, project_path=cpath)
 
     def killCurrentTerminal(self):
@@ -312,7 +312,22 @@ class TerminalEmulator(QWidget):
                 self.handle_custom_command(command)
             else:
                 self.terminal.appendPlainText("")
-                self.processes[self.current_process_index].write(command.encode() + b"\n")
+                try:
+                    # Modify the command to handle console width issues
+                    wrapped_command = f"""
+                    try {{
+                        $consoleWidth = [System.Console]::WindowWidth
+                    }} catch {{
+                        $consoleWidth = 120  # Default width if unable to determine
+                    }}
+                    $ErrorActionPreference = 'Stop'
+                    {command} | Out-String -Stream -Width $consoleWidth
+                    """
+                    self.processes[self.current_process_index].write(wrapped_command.encode() + b'\n')
+                except Exception as e:
+                    error_message = f"Error executing command: {str(e)}"
+                    self.terminal.appendPlainText(error_message)
+                    logging.error(error_message)
             
             if command not in self.command_history:
                 self.command_history.append(command)
@@ -454,3 +469,21 @@ class TerminalEmulator(QWidget):
         command_start = text.rfind(self.prompt) + len(self.prompt)
         self.current_command = text[command_start:].strip()
         self.completer.setCompletionPrefix(self.current_command)
+    
+    def update_output(self):
+        try:
+            output = self.process.readAllStandardOutput().data().decode()
+            self.terminal.append(output)
+        except Exception as e:
+            error_message = f"Error reading output: {str(e)}"
+            self.terminal.append(error_message)
+            logging.error(error_message)
+
+        try:
+            error_output = self.process.readAllStandardError().data().decode()
+            if error_output:
+                self.terminal.append(error_output)
+        except Exception as e:
+            error_message = f"Error reading error output: {str(e)}"
+            self.terminal.append(error_message)
+            logging.error(error_message)
