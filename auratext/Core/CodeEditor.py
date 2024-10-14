@@ -1,5 +1,5 @@
-from PyQt6.Qsci import QsciScintilla, QsciAPIs
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QTextBrowser, QComboBox, QLabel
+from PyQt6.Qsci import QsciScintilla, QsciAPIs, QsciLexerPython, QsciLexerCPP
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QTextBrowser, QComboBox, QLabel, QPushButton, QSpacerItem, QSizePolicy
 from PyQt6.QtGui import QColor, QPainter, QTextFormat, QImage, QKeySequence, QShortcut, QKeyEvent, QAction
 from PyQt6.QtCore import Qt, QTimer, QRect, QSize, QStringListModel
 import logging
@@ -13,9 +13,12 @@ from .search_and_line_number import Search
 from .Modules import ModulesFile
 from HMC.settings_manager import SettingsManager
 from PyQt6.QtWidgets import QMenu, QCompleter
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QPoint
 from PyQt6.QtGui import QKeySequence, QTextCursor
 import random
+from GUX.find_and_replace_and_cursors import FindReplaceWidget
+from HMC.cursor_manager import EditorCursorManager, Cursor
+
 class CustomQsciScintilla(QsciScintilla):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,13 +53,50 @@ class CustomQsciScintilla(QsciScintilla):
         self.forced_line_alpha = alpha
         self.update()
 
+class EditorContextBar(QWidget):
+    def __init__(self, editor, parent=None):
+        super().__init__(parent)
+        self.editor = editor
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(5, 2, 5, 2)  # Reduce vertical space
+
+        # Left side: Empty space
+        layout.addItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+
+        # Right side: Context information, fileset selector, and add file button
+        self.context_label = QLabel()
+        self.fileset_selector = QComboBox()
+        self.add_file_button = QPushButton("+")
+        self.add_file_button.setFixedSize(24, 24)  # Make it compact
+
+        layout.addWidget(self.context_label)
+        layout.addWidget(self.fileset_selector)
+        layout.addWidget(self.add_file_button)
+
+        self.setLayout(layout)
+
+    def update_context(self, context_info):
+        self.context_label.setText(context_info)
+    
+    def update_fileset_selector(self, filesets):
+        self.fileset_selector.clear()
+        self.fileset_selector.addItems(filesets)
+
+    def set_current_fileset(self, fileset):
+        index = self.fileset_selector.findText(fileset)
+        if index >= 0:
+            self.fileset_selector.setCurrentIndex(index)
+
 class CodeEditor(QWidget):
     
     def __init__(self, mm, parent=None):
         super().__init__(parent)
         self.mm = mm
         self.file_path = None
-        self.current_language = None
+        self.current_language = 'text'
         self.image_map = {}
         self.vault_path = None
         self.vault_manager = mm.vault_manager
@@ -72,7 +112,10 @@ class CodeEditor(QWidget):
         self.import_completer = self.completer
         self._is_modified = False
         self.text_edit.textChanged.connect(self._handle_text_changed)
-
+        self.cursor_manager = EditorCursorManager(self.text_edit)
+        self.context_bar = EditorContextBar(self)
+        self.find_replace_widget = FindReplaceWidget(self)
+        self.find_replace_widget.hide()  # Initially hidden
         self.setup_ui()
         self.setup_editor()
         self.setup_connections()
@@ -88,22 +131,19 @@ class CodeEditor(QWidget):
         logging.info("CodeEditor initialization complete")
         self.setup_auto_import_completion()
 
-        self.cursor_manager = mm.cursor_manager if hasattr(mm, 'cursor_manager') else None
+        
         self.setup_lsp_connections()
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)  # Remove any margins
-        layout.setSpacing(0)  # Remove spacing between widgets
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        self.text_edit = CustomQsciScintilla(self)
+        layout.addWidget(self.context_bar)
         layout.addWidget(self.text_edit)
-
-        # If you have other widgets in the CodeEditor, add them here
-        # For example:
-        # self.line_number_area = LineNumberArea(self.text_edit)
-        # layout.addWidget(self.line_number_area)
-
+        layout.addWidget(self.fileset_selector)
+        layout.addWidget(self.find_replace_widget)
+        
         self.setLayout(layout)
     def setup_editor(self):
         self.text_edit.setUtf8(True)
@@ -126,16 +166,29 @@ class CodeEditor(QWidget):
         self.text_edit.textChanged.connect(self.update_file_outline)
         self.text_edit.textChanged.connect(self.on_text_changed)   
         self.fileset_selector.currentTextChanged.connect(self.on_fileset_changed)
-       
+        
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_markdown_preview)
         self.update_timer.setInterval(1000)
         
         self.completer.activated.connect(self.insert_completion)
-
+        self.text_edit.cursorPositionChanged.connect(self.update_context_bar)
+        self.context_bar.add_file_button.clicked.connect(self.add_file_dialog)
+        self.context_bar.fileset_selector.currentTextChanged.connect(self.change_fileset)
+        self.find_replace_widget.findNext.connect(self.find_next)
+        self.find_replace_widget.replace.connect(self.replace)
+        self.find_replace_widget.replaceAll.connect(self.replace_all)
+        self.text_edit.cursorPositionChanged.connect(self.update_cursor_manager)
+      
+   
     def setup_shortcuts(self):
         radial_menu_shortcut = QShortcut(QKeySequence("Ctrl+Space"), self)
         radial_menu_shortcut.activated.connect(self.show_radial_menu)
+    def change_fileset(self, fileset_name):
+        current_vault = self.mm.vault_manager.get_current_vault()
+        current_workspace = self.mm.workspace_manager.get_active_workspace()
+        if current_vault and current_workspace:
+            self.mm.workspace_manager.set_active_fileset(current_vault.path, current_workspace.name, fileset_name)
 
     def setup_indentation_guides(self):
         # Enable indentation guides
@@ -211,22 +264,38 @@ class CodeEditor(QWidget):
             md_text = self.text_edit.text()
             self.markdown_viewer.setHtml(self.markdown_to_html(md_text))
 
+    def set_language_from_file_path(self, file_path):
+        file_extension = os.path.splitext(file_path)[1].lower()
+        language = self.mm.lexer_manager.get_language_from_extension(file_extension)
+        self.current_language = language
+        lexer = self.mm.lexer_manager.get_lexer(language, parent=self.text_edit)
+        if lexer:
+            self.text_edit.setLexer(lexer)
+        else:
+            self.text_edit.setLexer(None)  # Clear lexer if no appropriate one is found
+        self.show_current_lexer()
     def set_language(self, language):
-        if self.current_language != language:
-            self.current_language = language
-            self.mm.lexer_manager.apply_lexer(language, self)#wow what code
-            self.toggle_markdown_preview(language == 'markdown')
-            self.show_current_lexer()  # Add this line to update the lexer display
+        self.current_language = language
+        lexer_class = self.language_to_lexer.get(language)
+        if lexer_class:
+            lexer = lexer_class(self.text_edit)
+            self.set_lexer(lexer)
+        else:
+            self.set_lexer(None)  # No lexer for unknown languages
+        self.show_current_lexer()
 
     def set_lexer(self, lexer):
-        # Directly set the lexer on the QsciScintilla editor
         self.text_edit.setLexer(lexer)
-        self.current_lexer = type(lexer).__name__  # Update the current lexer name
-        self.show_current_lexer()  # Update the lexer display
-    def set_language(self, language):
-        if self.current_language != language:
-            self.current_language = language
-            self.set_lexer(language)
+        self.current_lexer = type(lexer).__name__ if lexer else "None"
+        self.show_current_lexer()
+
+    
+    def show_current_lexer(self):
+        if hasattr(self, 'lexer_label'):
+            self.lexer_label.setText(f"Current Lexer: {self.current_language}")
+        else:
+            self.lexer_label = QLabel(f"Current Lexer: {self.current_language}", self)
+            self.layout().addWidget(self.lexer_label)
     def toggle_markdown_preview(self, show):
         if show:
             self.markdown_preview.show()
@@ -243,22 +312,6 @@ class CodeEditor(QWidget):
         self.file_path = file_path
         self.set_language_from_file_path(file_path)
 
-    def set_language_from_file_path(self, file_path):
-        file_extension = os.path.splitext(file_path)[1].lower()
-        language_map = {
-            'py': 'python', 'md': 'md', 'cpp': 'cpp',
-            'js': 'javascript', 'html': 'html', 'ex': 'elixir', 'exs': 'elixir',
-        }
-       
-        language = language_map.get(file_extension, 'text')
-        self.set_language(language)
-        if language == 'markdown':
-            self.markdown_viewer.load_markdown(file_path)
-            self.markdown_viewer.show()
-        else:
-            self.markdown_viewer.hide()
-   
-    
     def on_file_path_changed(self, file_path):
         self.file_path = file_path
         self.set_language_from_file_path(file_path)
@@ -343,6 +396,11 @@ class CodeEditor(QWidget):
 
     def insertPlainText(self, text):
         self.text_edit.insert(text)
+    def update_cursor_manager(self):
+        line, index = self.text_edit.getCursorPosition()
+        self.cursor_manager.clear_cursors()
+        self.cursor_manager.add_cursor(line, index)
+        self.update_context_bar()
 
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() == Qt.Key_Tab and self.import_completer.popup().isVisible():
@@ -353,9 +411,12 @@ class CodeEditor(QWidget):
         # Handle multi-cursor editing
         if self.cursor_manager and len(self.cursor_manager.cursors) > 1:
             if event.key() in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete, Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self.cursor_manager.apply_edit_to_all_cursors(lambda c: self.apply_edit(c, event))
+                self.apply_edit(event)
                 event.accept()
                 return
+
+        if event.key() == Qt.Key.Key_Alt:
+            self.cursor_manager.set_transparent_cursor()
 
         super().keyPressEvent(event)
 
@@ -404,6 +465,12 @@ class CodeEditor(QWidget):
         if self.current_language == 'markdown':
             self.update_markdown_preview()
 
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key.Key_Alt:
+            self.cursor_manager.restore_default_cursor()
+        super().keyReleaseEvent(event)
+
+    
     def handle_completions(self, completions):
         # Existing LSP completions handling
         # ...
@@ -651,11 +718,7 @@ class CodeEditor(QWidget):
         # self.text_edit.setCaretLineBackgroundColor(current_line_color)
         self.check_current_line_color()
         # No need to set the color here, as it should persist
-    def check_current_line_color(self):
-        color = self.text_edit.SendScintilla(QsciScintilla.SCI_GETCARETLINEBACK)
-        alpha = self.text_edit.SendScintilla(QsciScintilla.SCI_GETCARETLINEBACKALPHA)
-        is_visible = self.text_edit.SendScintilla(QsciScintilla.SCI_GETCARETLINEVISIBLE)
-        logging.warning(f"Check - Current line color: #{color:06x}, Alpha: {alpha}, Visible: {is_visible}")
+    
     def load_typing_effect_settings(self):
         self.typing_effect_enabled = self.settings_manager.get_typing_effect_enabled()
         self.typing_effect_speed = self.settings_manager.get_typing_effect_speed()
@@ -683,11 +746,12 @@ class CodeEditor(QWidget):
         else:
             self.lexer_label = QLabel(f"Current Lexer: {self.current_language}", self)
             self.layout().addWidget(self.lexer_label)
+     
     def check_current_line_color(self):
         color = self.text_edit.SendScintilla(QsciScintilla.SCI_GETCARETLINEBACK)
         alpha = self.text_edit.SendScintilla(QsciScintilla.SCI_GETCARETLINEBACKALPHA)
-        logging.warning(f"Current line color: #{color:06x}, Alpha: {alpha}")     
-
+        is_visible = self.text_edit.SendScintilla(QsciScintilla.SCI_GETCARETLINEVISIBLE)
+        logging.warning(f"Check - Current line color: #{color:06x}, Alpha: {alpha}, Visible: {is_visible}")
     def setup_lsp_connections(self):
         if hasattr(self.mm, 'lsp_manager'):
             if self.mm.lsp_manager is not None:
@@ -774,8 +838,9 @@ class CodeEditor(QWidget):
     def goto_definition(self):
         # Implement go to definition logic here
         pass
-    def goto_line(self,line):
-        self.text_edit.scroll(line,0)
+    def goto_line(self, line):
+        self.text_edit.setCursorPosition(line - 1, 0)
+        self.text_edit.ensureCursorVisible()
     def show_references(self):
         # Implement show references logic here
         pass
@@ -790,38 +855,53 @@ class CodeEditor(QWidget):
 
     def insert_completion(self, completion):
         if self.cursor_manager:
-            active_cursor = self.cursor_manager.get_active_cursor()
-            if active_cursor:
-                # Use CursorManager to move the cursor
-                self.cursor_manager.move_cursor_left(len(self.completer.completionPrefix()), keep_anchor=True)
+            def insert_at_cursor(cursor):
+                # Remove the completion prefix
+                for _ in range(len(self.completer.completionPrefix())):
+                    self.apply_edit(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Backspace, Qt.KeyboardModifier.NoModifier))
                 
                 # Insert the completion
-                self.cursor_manager.insert_text(completion)
-            else:
-                # If no active cursor, fall back to default behavior
-                cursor = self.text_edit.textCursor()
-                cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, len(self.completer.completionPrefix()))
-                cursor.insertText(completion)
-                self.text_edit.setTextCursor(cursor)
-                logging.warning("No active cursor, using default behavior")
-                self.cursor_manager.synchronize_cursors()
+                self.apply_edit(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_A, Qt.KeyboardModifier.NoModifier, completion))
+            
+            self.cursor_manager.apply_edit_to_all_cursors(insert_at_cursor)
+            self.cursor_manager.synchronize_cursors()
         else:
             # If no cursor manager, use default behavior
             logging.warning("No cursor manager, using default behavior")
-            cursor = self.text_edit.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, len(self.completer.completionPrefix()))
-            cursor.insertText(completion)
-            self.text_edit.setTextCursor(cursor)
+            self.text_edit.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
+            current_pos = self.text_edit.SendScintilla(QsciScintilla.SCI_GETCURRENTPOS)
+            
+            # Remove the completion prefix
+            for _ in range(len(self.completer.completionPrefix())):
+                self.text_edit.SendScintilla(QsciScintilla.SCI_DELETEBACK)
+            
+            # Insert the completion
+            self.text_edit.insert(completion)
+            
+            # Move the cursor to the end of the inserted completion
+            new_pos = current_pos + len(completion) - len(self.completer.completionPrefix())
+            self.text_edit.SendScintilla(QsciScintilla.SCI_SETCURRENTPOS, new_pos)
+            self.text_edit.SendScintilla(QsciScintilla.SCI_SETSELECTION, new_pos, new_pos)
 
-        # No need to explicitly synchronize cursors, as CursorManager methods should handle this
-
-    def apply_edit(self, cursor, event):
-        if event.key() == Qt.Key.Key_Backspace:
-            cursor.deletePreviousChar()
-        elif event.key() == Qt.Key.Key_Delete:
-            cursor.deleteChar()
-        elif event.text():
-            cursor.insertText(event.text())
+        # Ensure the editor updates
+        self.text_edit.update()
+    def apply_edit(self, event):
+        if self.cursor_manager:
+            if event.key() == Qt.Key.Key_Backspace:
+                self.cursor_manager.move_cursors('left', 1)
+                self.cursor_manager.insert_text('')
+            elif event.key() == Qt.Key.Key_Delete:
+                self.cursor_manager.insert_text('')
+            elif event.text():
+                self.cursor_manager.insert_text(event.text())
+        else:
+            # Fallback for when cursor_manager is not available
+            if event.key() == Qt.Key.Key_Backspace:
+                self.text_edit.SendScintilla(QsciScintilla.SCI_DELETEBACK)
+            elif event.key() == Qt.Key.Key_Delete:
+                self.text_edit.SendScintilla(QsciScintilla.SCI_CLEAR)
+            elif event.text():
+                self.text_edit.insert(event.text())
     def connect_lsp_manager(self):
         if hasattr(self.mm, 'lsp_manager') and self.mm.lsp_manager is not None:
             self.mm.lsp_manager.completionsReceived.connect(self.handle_completions)
@@ -872,3 +952,89 @@ class CodeEditor(QWidget):
         
         # Highlight the paragraph
         self.text_edit.setSelection(start_line, 0, end_line, len(self.text_edit.text(end_line)))
+    def add_file_to_current_fileset(self, file_path):
+        current_vault = self.mm.vault_manager.get_current_vault()
+        current_workspace = self.mm.workspace_manager.get_active_workspace()
+        if current_vault and current_workspace:
+            success = self.mm.workspace_manager.add_file_to_active_fileset(
+                current_vault.path, 
+                current_workspace.name, 
+                file_path
+            )
+            if success:
+                self.update_fileset_selector()
+                return True
+        return False
+    def add_file_dialog(self):
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Add File to Fileset", 
+            "", 
+            "All Files (*);;Text Files (*.txt);;Python Files (*.py)", 
+            options=options
+        )
+        if file_name:
+            if self.add_file_to_current_fileset(file_name):
+                logging.warning(f"File '{file_name}' added to the current fileset.")
+            else:
+                logging.warning(f"Failed to add file '{file_name}' to the current fileset.")
+                
+    
+    def toggle_find_replace(self):
+        self.find_replace_widget.setVisible(not self.find_replace_widget.isVisible())
+
+    def find_next(self, text, case_sensitive, whole_words):
+        # Implement find functionality using QsciScintilla methods
+        flags = 0
+        if case_sensitive:
+            flags |= self.text_edit.SCFIND_MATCHCASE
+        if whole_words:
+            flags |= self.text_edit.SCFIND_WHOLEWORD
+        self.text_edit.findFirst(text, False, case_sensitive, whole_words, False, forward=True, line=-1, index=-1)
+
+    def replace(self, find_text, replace_text, case_sensitive, whole_words):
+        # Implement replace functionality
+        if self.text_edit.hasSelectedText():
+            self.text_edit.replaceSelectedText(replace_text)
+        self.find_next(find_text, case_sensitive, whole_words)
+
+    def replace_all(self, find_text, replace_text, case_sensitive, whole_words):
+        # Implement replace all functionality
+        self.text_edit.beginUndoAction()
+        while self.find_next(find_text, case_sensitive, whole_words):
+            self.text_edit.replaceSelectedText(replace_text)
+        self.text_edit.endUndoAction()
+    def update_context_bar(self):
+        cursor_positions = []
+        for cursor in self.cursor_manager.cursors:
+            line, col = cursor.get_position()
+            cursor_positions.append(f"L{line + 1}:C{col + 1}")
+        context_info = " | ".join(cursor_positions) if cursor_positions else "No active cursors"
+        self.context_bar.update_context(context_info)
+
+    def mousePressEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.AltModifier:
+            pos = self.text_edit.mapFromGlobal(event.globalPosition().toPoint())
+            line, index = self.text_edit.lineIndexFromPosition(pos.x(), pos.y())
+            self.cursor_manager.add_cursor(line, index)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+
+   
+    # Add these methods to handle cursor movement
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
+            direction = {
+                Qt.Key.Key_Left: 'left',
+                Qt.Key.Key_Right: 'right',
+                Qt.Key.Key_Up: 'up',
+                Qt.Key.Key_Down: 'down'
+            }[event.key()]
+            self.cursor_manager.move_cursors(direction, 1, event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        else:
+            self.apply_edit(event)
+        self.update_context_bar()
+        super().keyPressEvent(event)

@@ -132,6 +132,22 @@ class LexerManager:
             
             
         }
+    def get_lexer(self, language, parent=None):
+        lexer_class = self.lexers.get(language)
+        if lexer_class:
+            return lexer_class(parent)
+        return None
+    def get_language_from_extension(self, extension):
+        extension = extension.lstrip('.')  # Remove leading dot if present
+        return {
+            'py': 'python',
+            'cpp': 'cpp',
+            'h': 'cpp',
+            'js': 'javascript',
+            'html': 'html',
+            'md': 'markdown',
+            # ... add more mappings ...
+        }.get(extension.lower(), 'text')
 
     def get_available_lexers(self):
         return list(self.lexers.keys())

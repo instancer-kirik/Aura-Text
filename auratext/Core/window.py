@@ -109,7 +109,7 @@ class AuraTextWindow(QMainWindow):
         self.logger.setLevel(logging.DEBUG)
         self.recent_projects_menu = None
         self.file_search_widget = None
-      
+
         
         if not self.current_vault:
             self.logger.warning("No current vault set during AuraTextWindow initialization")
@@ -123,7 +123,7 @@ class AuraTextWindow(QMainWindow):
         
         self.file_system_model = self.mm.file_manager.create_file_system_model()
         self.workspace_selector = None
-        self.fileset_selector = None
+        self.fileset_selector = QComboBox(self)
         self.project_selector = None
         
         # try: 
@@ -134,6 +134,7 @@ class AuraTextWindow(QMainWindow):
         
         self.setup_ui()
         self.setup_ui_components()
+        
         self.setup_connections()
         self.setup_shortcuts()
         self.setup_toolbar()
@@ -155,14 +156,14 @@ class AuraTextWindow(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
-        
         self.tab_widget = ImprovedTabWidget(self)
         self.setCentralWidget(self.tab_widget)
-
+        
     def setup_ui_components(self):
         
        
         self.cursor_manager = self.mm.cursor_manager
+        
 
      
         self.file_tree_view = FileTreeView(self.file_system_model, self)
@@ -170,8 +171,6 @@ class AuraTextWindow(QMainWindow):
 
         self.vault_explorer = FileTreeView(self.file_system_model, self)
         self.vault_explorer.file_selected.connect(self.open_file)
-        self.tab_widget = ImprovedTabWidget(self)
-        self.setCentralWidget(self.tab_widget)
 
         self.terminal_emulator = TerminalEmulator(self)
         self.terminal_dock = QDockWidget("Terminal", self)
@@ -183,7 +182,7 @@ class AuraTextWindow(QMainWindow):
         self.setup_file_explorer()
         
         self.setup_workspace_selector()
-
+       
         # Add Daily Note action to the File menu
         daily_note_action = QAction("Open Daily Note", self)
         daily_note_action.triggered.connect(self.open_daily_note)
@@ -515,7 +514,7 @@ class AuraTextWindow(QMainWindow):
         if self.workspace_selector:
             self.workspace_selector.currentTextChanged.connect(self.on_workspace_changed)
         if self.fileset_selector is not None:
-            self.fileset_selector.currentTextChanged.connect(self.on_fileset_changed)
+            self.fileset_selector.currentTextChanged.connect(self.open_selected_file)
         else:
             logging.warning("fileset_selector is None, skipping connection setup")
         
@@ -533,8 +532,8 @@ class AuraTextWindow(QMainWindow):
         # Connect signals
         self.mm.vault_manager.indexing_started.connect(self.show_loading_indicator)
         self.mm.vault_manager.indexing_finished.connect(self.hide_loading_indicator)
-
-
+     
+     
     def setup_shortcuts(self):
         # File operations
         QShortcut(QKeySequence.StandardKey.New, self, self.action_handlers.new_file)
@@ -673,7 +672,8 @@ class AuraTextWindow(QMainWindow):
             model_manager=self.mm.model_manager,
             download_manager=self.mm.download_manager,
             settings_manager=self.mm.settings_manager,
-            vault_manager=self.mm.vault_manager
+            vault_manager=self.mm.vault_manager,
+            project_manager=self.mm.project_manager
         )
         self.ai_chat.file_clicked.connect(self.open_file_from_chat)
         self.ai_chat_widget.hide()
@@ -1098,7 +1098,16 @@ class AuraTextWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Error", "No file is currently open")
 
-    
+    def update_fileset_selector(self):
+        current_vault = self.mm.vault_manager.get_current_vault()
+        current_workspace = self.mm.workspace_manager.get_active_workspace()
+        if current_vault and current_workspace:
+            active_files = self.mm.workspace_manager.get_active_files(
+                current_vault.path, 
+                current_workspace.name
+            )
+            self.fileset_selector.clear()
+            self.fileset_selector.addItems(active_files)
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.RightButton:
             self.show_radial_menu(event.pos())
@@ -1516,3 +1525,17 @@ class AuraTextWindow(QMainWindow):
     def hide_loading_indicator(self):
         # Implement this method to hide the loading indicator in your UI
         pass
+    def open_selected_file(self):
+        selected_file = self.fileset_selector.currentText()
+        if selected_file:
+            self.open_file(selected_file)
+
+    def open_file(self, file_path):
+        try:
+           self.mm.editor_manager.open_file(file_path)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to open file: {str(e)}")
+    def on_text_changed(self):
+        
+       pass
+   
