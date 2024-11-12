@@ -4,9 +4,32 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QListWidget, QVBoxLayout, QWidget, QDockWidget, QPushButton, QListWidgetItem, QCheckBox, \
     QMessageBox, QLineEdit, QLabel
+import sys
 
-local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
-cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
+# Determine app data directory
+if sys.platform == "win32":
+    local_app_data = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "AuraText")
+elif sys.platform == "darwin":
+    local_app_data = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "AuraText")
+else:
+    local_app_data = os.path.join(os.path.expanduser("~"), ".local", "share", "AuraText")
+
+# Ensure directories exist
+os.makedirs(os.path.join(local_app_data, "data"), exist_ok=True)
+
+# Path to CPath_Project.txt
+cpath_file = os.path.join(local_app_data, "data", "CPath_Project.txt")
+
+# Create default CPath_Project.txt if it doesn't exist
+if not os.path.exists(cpath_file):
+    with open(cpath_file, "w") as f:
+        # Default to user's home directory or current directory
+        default_path = os.path.expanduser("~")
+        f.write(default_path)
+
+# Read the current project path
+with open(cpath_file, "r") as f:
+    cpath = f.read().strip()
 
 
 class GitCommitDock(QDockWidget):
@@ -118,3 +141,10 @@ class GitCommitDock(QDockWidget):
                 print(f"Unexpected error: {e}")
         else:
             QMessageBox.warning(self, 'No Files Selected', 'Please select files to commit.')
+
+    def update_project_path(self, new_path: str):
+        """Update the current project path"""
+        global cpath
+        cpath = new_path
+        with open(os.path.join(local_app_data, "data", "CPath_Project.txt"), "w") as f:
+            f.write(new_path)

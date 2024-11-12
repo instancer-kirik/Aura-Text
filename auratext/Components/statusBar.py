@@ -1,14 +1,46 @@
 import json
 import os
 import time
-
+import sys
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QStatusBar, QWidget
 
-# from ..scripts.color_scheme_loader import color_schemes
+# Determine app data directory
+if sys.platform == "win32":
+    local_app_data = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "AuraText")
+elif sys.platform == "darwin":
+    local_app_data = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "AuraText")
+else:
+    local_app_data = os.path.join(os.path.expanduser("~"), ".local", "share", "AuraText")
 
-local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
-with open(f"{local_app_data}/data/theme.json", "r") as themes_file:
+# Ensure directories exist
+os.makedirs(os.path.join(local_app_data, "data"), exist_ok=True)
+
+# Path to theme file
+theme_file = os.path.join(local_app_data, "data", "theme.json")
+
+# Create default theme if it doesn't exist
+if not os.path.exists(theme_file):
+    default_theme = {
+        "sidebar_bg": "#1E1E1E",
+        "text_color":"#F0F0F0",
+        "accent_color": "#007ACC",
+        "editor_bg": "#1E1E1E",
+        "editor_text": "#D4D4D4",
+        "line_number_bg": "#252526",
+        "line_number_text": "#858585",
+        "selection_bg": "#264F78",
+        "current_line_bg": "#282828",
+        "matching_bracket_bg": "#3D3D3D",
+        "search_result_bg": "#613214",
+        "find_match_bg": "#515C6A"
+    }
+    
+    with open(theme_file, "w") as f:
+        json.dump(default_theme, f, indent=4)
+
+# Load theme
+with open(theme_file, "r") as themes_file:
     _themes = json.load(themes_file)
 
 class Separator(QFrame):
@@ -27,7 +59,7 @@ class StatusBar(QStatusBar):
             f"""
             QStatusBar {{
                 background-color: {_themes['sidebar_bg']};
-                color: {"#FFFFFF"};
+                color: {_themes['text_color']};
                 padding-bottom: 2px;
                 position: absolute;
                 bottom: 0;

@@ -1,6 +1,6 @@
 import json
 import os
-
+import sys
 from PyQt6.QtWidgets import (
     QCheckBox,
     QPushButton,
@@ -9,8 +9,31 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 
-local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
+# Determine the appropriate application data directory based on the OS
+if sys.platform == "win32":
+    local_app_data = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "AuraText")
+elif sys.platform == "darwin":
+    local_app_data = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "AuraText")
+else:  # Linux and other Unix-like systems
+    local_app_data = os.path.join(os.path.expanduser("~"), ".local", "share", "AuraText")
 
+# Ensure the directory exists
+os.makedirs(local_app_data, exist_ok=True)
+os.makedirs(os.path.join(local_app_data, "data"), exist_ok=True)  # Create data subdirectory
+
+# Path to store configuration files
+config_file_path = os.path.join(local_app_data, "data", "config.json")
+
+# Create default config if it doesn't exist
+if not os.path.exists(config_file_path):
+    default_config = {
+        "splash": "True",
+        "terminal_tips": "True",
+        "explorer_default_open": "True",
+        "open_last_file": "False"
+    }
+    with open(config_file_path, "w") as json_file:
+        json.dump(default_config, json_file, indent=4)
 
 class SettingsWindow(QDialog):
     def __init__(self):

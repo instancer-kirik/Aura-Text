@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-import winreg
+import os
+import sys
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
@@ -234,20 +235,64 @@ class ConfigPage(QWidget):
 
     @staticmethod
     def get_installed_fonts():
-        font_key_path = r"Software\Microsoft\Windows NT\CurrentVersion\Fonts"
-        font_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, font_key_path)
+        """Get installed fonts based on the platform"""
+        if sys.platform == "win32":
+            import winreg
+            font_key_path = r"Software\Microsoft\Windows NT\CurrentVersion\Fonts"
+            font_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, font_key_path)
 
-        font_names = []
-        try:
-            index = 0
-            while True:
-                font_name, _, _ = winreg.EnumValue(font_key, index)
-                font_name = font_name.replace("(TrueType)", "")
-                font_names.append(font_name)
-                index += 1
-        except WindowsError:
-            pass
+            font_names = []
+            try:
+                index = 0
+                while True:
+                    font_name, _, _ = winreg.EnumValue(font_key, index)
+                    font_name = font_name.replace("(TrueType)", "")
+                    font_names.append(font_name)
+                    index += 1
+            except WindowsError:
+                pass
 
-        winreg.CloseKey(font_key)
+            winreg.CloseKey(font_key)
+            return font_names
 
-        return font_names
+        elif sys.platform == "darwin":  # macOS
+            import subprocess
+            try:
+                # Use system_profiler to get font information
+                result = subprocess.run(['system_profiler', 'SPFontsDataType', '-json'], 
+                                     capture_output=True, text=True)
+                import json
+                fonts_data = json.loads(result.stdout)
+                return [font for font in fonts_data.get('SPFontsDataType', [{}])[0].get('_items', [])]
+            except Exception:
+                pass
+
+        else:  # Linux
+            try:
+                import subprocess
+                # Use fc-list to get system fonts
+                result = subprocess.run(['fc-list', ':spacing=mono', 'family'], 
+                                     capture_output=True, text=True)
+                fonts = result.stdout.split('\n')
+                # Clean up font names
+                font_names = [f.split(',')[0].strip() for f in fonts if f]
+                return sorted(set(font_names))  # Remove duplicates and sort
+            except Exception:
+                pass
+
+        # Fallback fonts if we can't get system fonts
+        return [
+            "Consolas",
+            "Courier New",
+            "DejaVu Sans Mono",
+            "Fira Code",
+            "Hack",
+            "IBM Plex Mono",
+            "JetBrains Mono",
+            "Liberation Mono",
+            "Menlo",
+            "Monaco",
+            "Monospace",
+            "Source Code Pro",
+            "Ubuntu Mono"
+        ]

@@ -69,22 +69,62 @@ from PyQt6.QtGui import QKeySequence, QAction
 from PyQt6.QtWidgets import QMenuBar, QToolBar, QDialogButtonBox
 from PyQt6.QtCore import QDir
 from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
-from .file_outline_widget import FileOutlineWidget
+from GUX.widgets.file_outline_widget import FileOutlineWidget
 from GUX.search_dialog import SearchDialog
 
 from AuraText.auratext.Core.CodeEditor import CodeEditor
 from PyQt6.QtWidgets import QComboBox, QListWidget
 from AuraText.auratext.Components.shortcuts_dialog import ShortcutsDialog
-local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
-cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
-cfile = open(f"{local_app_data}/data/CPath_File.txt", "r+").read()
 from PyQt6.QtGui import QShortcut, QMouseEvent
 from GUX.file_tree_view import FileTreeView
 from PyQt6.QtWidgets import QStackedWidget
 from HMC.project_manager import ProjectManagerWidget
 from GUX.file_search_widget import FileSearchWidget
-
 from pathlib import Path
+import platform
+
+def get_app_data_dir() -> Path:
+    """Get the appropriate application data directory for the current platform"""
+    system = platform.system().lower()
+    
+    if system == "windows":
+        # Windows: %LocalAppData%\AuraText
+        base_dir = Path(os.getenv("LocalAppData", ""))
+    elif system == "darwin":
+        # macOS: ~/Library/Application Support/AuraText
+        base_dir = Path.home() / "Library" / "Application Support"
+    else:
+        # Linux/Unix: ~/.local/share/AuraText
+        base_dir = Path.home() / ".local" / "share"
+    
+    return base_dir / "AuraText"
+
+# Initialize app data directory
+APP_DATA_DIR = get_app_data_dir()
+DATA_DIR = APP_DATA_DIR / "data"
+
+# Create necessary directories
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Define path files
+PROJECT_PATH_FILE = DATA_DIR / "CPath_Project.txt"
+FILE_PATH_FILE = DATA_DIR / "CPath_File.txt"
+
+# Initialize with default values if files don't exist
+def init_path_files():
+    if not PROJECT_PATH_FILE.exists():
+        PROJECT_PATH_FILE.write_text("")
+    if not FILE_PATH_FILE.exists():
+        FILE_PATH_FILE.write_text("")
+
+try:
+    init_path_files()
+    cpath = PROJECT_PATH_FILE.read_text()
+    cfile = FILE_PATH_FILE.read_text()
+except Exception as e:
+    logging.error(f"Error initializing path files: {e}")
+    cpath = ""
+    cfile = ""
 
 class AuraTextWindow(QMainWindow):
     def __init__(self, mm, parent=None):
@@ -431,7 +471,6 @@ class AuraTextWindow(QMainWindow):
         tools_menu.addAction("Upload to Pastebin", self.action_handlers.pastebin)
         tools_menu.addAction("Notes", self.action_handlers.notes)
         tools_button.setMenu(tools_menu)
-        self.toolbar.addWidget(tools_button)
         toggle_action = QAction("Toggle Highlight", self)
         toggle_action.triggered.connect(self.code_editor.toggle_highlight)
         self.toolbar.addAction(toggle_action)
@@ -856,11 +895,15 @@ class AuraTextWindow(QMainWindow):
     def new_project(self):
         project_name, ok = QInputDialog.getText(self, "New Project", "Enter project name:")
         if ok and project_name:
-            project_path = os.path.join(os.path.expanduser("~"), "AuraTextProjects", project_name)
-            os.makedirs(project_path, exist_ok=True)
-            QMessageBox.information(self, "New Project", f"Created new project: {project_name}\nPath: {project_path}")
-            self.file_system_model.setRootPath(project_path)
-            self.file_tree_view.setRootIndex(self.file_system_model.index(project_path))
+            # Use Path for cross-platform compatibility
+            project_path = Path.home() / "Projects" / project_name
+            project_path.mkdir(parents=True, exist_ok=True)
+            QMessageBox.information(self, "New Project", 
+                f"Created new project: {project_name}\nPath: {project_path}")
+            self.file_system_model.setRootPath(str(project_path))
+            self.file_tree_view.setRootIndex(
+                self.file_system_model.index(str(project_path))
+            )
 
     def open_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
@@ -978,6 +1021,7 @@ class AuraTextWindow(QMainWindow):
         # Update any necessary state or UI elements
         self.update_vault_related_ui(new_vault_path)
         self.file_explorer.set_root_path(new_vault_path)
+        self.update_explorer_views()
 
     def open_vault_dialog(self):
         path = QFileDialog.getExistingDirectory(self, "Select Vault Directory")
@@ -1023,7 +1067,9 @@ class AuraTextWindow(QMainWindow):
     def load_project_state(self, project_name):
         open_files = self.mm.settings_manager.get_value(f"open_files_{project_name}", [])
         for file_path in open_files:
-            self.mm.editor_manager.open_file(file_path)
+            # Convert to Path and back to string to normalize path separators
+            normalized_path = str(Path(file_path))
+            self.mm.editor_manager.open_file(normalized_path)
     def update_vault_selector(self):
         if self.vault_selector is not None:
             self.vault_selector.clear()
@@ -1042,22 +1088,24 @@ class AuraTextWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Failed to switch project")
 
     def update_project_related_ui(self, project_path):
-        # Update file explorer to show the new project path
-        if project_path and os.path.exists(project_path):
-            self.file_system_model.setRootPath(project_path)
-            self.file_tree_view.setRootIndex(self.file_system_model.index(project_path))
+        if project_path and Path(project_path).exists():
+            path_str = str(Path(project_path))
+            self.file_system_model.setRootPath(path_str)
+            self.file_tree_view.setRootIndex(
+                self.file_system_model.index(path_str)
+            )
         else:
             logging.warning(f"Project path does not exist: {project_path}")
-   # Update any other UI elements that depend on the current project
-        # For example, update workspace selector, open files, etc.
+
     def update_explorer_views(self):
         root_path = self.mm.vault_manager.get_vault_path()
-        if root_path and os.path.exists(root_path):
-            self.file_system_model.setRootPath(root_path)
-            self.vault_explorer.set_root_path(root_path)
-            self.file_explorer.set_root_path(root_path)
+        if root_path and Path(root_path).exists():
+            root_path_str = str(Path(root_path))
+            self.file_system_model.setRootPath(root_path_str)
+            self.vault_explorer.set_root_path(root_path_str)
+            self.file_explorer.set_root_path(root_path_str)
         else:
-            default_path = os.path.expanduser("~")
+            default_path = str(Path.home())
             self.file_system_model.setRootPath(default_path)
             self.file_explorer.set_root_path(default_path)
             self.vault_explorer.set_root_path(default_path)
@@ -1182,7 +1230,8 @@ class AuraTextWindow(QMainWindow):
         pass
 
     def open_file_from_explorer(self, file_path):
-        self.mm.file_manager.open_file(file_path)
+        normalized_path = str(Path(file_path))
+        self.mm.file_manager.open_file(normalized_path)
 
     def open_file(self, file_path):
         if hasattr(self, 'file_tree_view'):
@@ -1201,9 +1250,10 @@ class AuraTextWindow(QMainWindow):
 
    
     def on_workspace_changed(self, new_workspace_path):
-        new_workspace_name = self.mm.workspace_manager.switch_workspace(new_workspace_path)
+        normalized_path = str(Path(new_workspace_path))
+        new_workspace_name = self.mm.workspace_manager.switch_workspace(normalized_path)
         self.mm.workspace_manager.set_active_workspace(new_workspace_name)
-        logging.info(f"Workspace changed to: {new_workspace_path}")
+        logging.info(f"Workspace changed to: {normalized_path}")
         self.update_explorer_views()
     def closeEvent(self, event):
         self.save_current_project_state()

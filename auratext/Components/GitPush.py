@@ -1,10 +1,33 @@
 import os
 import subprocess
+import sys
 
 from PyQt6.QtWidgets import QVBoxLayout, QPushButton, QMessageBox, QLineEdit, QDialog, QLabel, QComboBox, QSpacerItem
 
-local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
-cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
+# Determine app data directory
+if sys.platform == "win32":
+    local_app_data = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser("~")), "AuraText")
+elif sys.platform == "darwin":
+    local_app_data = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "AuraText")
+else:  # Linux and other Unix-like systems
+    local_app_data = os.path.join(os.path.expanduser("~"), ".local", "share", "AuraText")
+
+# Ensure directories exist
+os.makedirs(os.path.join(local_app_data, "data"), exist_ok=True)
+
+# Path to CPath_Project.txt
+cpath_file = os.path.join(local_app_data, "data", "CPath_Project.txt")
+
+# Create default CPath_Project.txt if it doesn't exist
+if not os.path.exists(cpath_file):
+    with open(cpath_file, "w") as f:
+        # Default to user's home directory or current directory
+        default_path = os.path.expanduser("~")
+        f.write(default_path)
+
+# Read the current project path
+with open(cpath_file, "r") as f:
+    cpath = f.read().strip()
 
 
 class GitPushDialog(QDialog):

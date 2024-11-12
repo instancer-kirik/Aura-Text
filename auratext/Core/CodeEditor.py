@@ -8,7 +8,7 @@ import re
 import time
 import markdown
 from GUX.markdown_viewer import MarkdownViewer
-from .file_outline_widget import FileOutlineWidget
+from GUX.widgets.file_outline_widget import FileOutlineWidget
 from .search_and_line_number import Search
 from .Modules import ModulesFile
 from HMC.settings_manager import SettingsManager
@@ -17,7 +17,7 @@ from PyQt6.QtCore import pyqtSignal, QPoint
 from PyQt6.QtGui import QKeySequence, QTextCursor
 import random
 from GUX.find_and_replace_and_cursors import FindReplaceWidget
-from HMC.cursor_manager import EditorCursorManager, Cursor
+from HMC.cursor_text_manager import EditorCursorManager, Cursor
 
 class CustomQsciScintilla(QsciScintilla):
     def __init__(self, parent=None):

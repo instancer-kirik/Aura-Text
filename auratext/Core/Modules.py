@@ -4,10 +4,94 @@ import requests
 import os
 import base64
 import pyttsx3
-import win32clipboard
+import logging  
+import sys
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QIcon
 from PyQt6.QtWidgets import QLabel, QDockWidget, QVBoxLayout, QTextEdit, QTextBrowser, QMessageBox
+from appdirs import user_data_dir
+import json
+# Define your application's name and author
+APP_NAME = "AuraText"
+APP_AUTHOR = "YourAuthorName"  # Replace with your actual author name or organization
+
+def get_app_data_dir(app_name, app_author):
+    """
+    Returns the appropriate user data directory based on the operating system.
+    """
+    try:
+        return user_data_dir(app_name, app_author)
+    except Exception as e:
+        logging.error(f"Error obtaining user data directory: {e}")
+        # Fallback to home directory if appdirs fails
+        home = os.path.expanduser("~")
+        return os.path.join(home, f".{app_name.lower()}")
+
+# Determine the appropriate application data directory based on the OS
+if sys.platform == "win32":
+    local_app_data = os.path.join(os.getenv("LOCALAPPDATA"), "AuraText")
+elif sys.platform == "darwin":
+    local_app_data = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "AuraText")
+else:
+    local_app_data = os.path.join(os.path.expanduser("~"), ".local", "share", "AuraText")
+
+# Ensure the directory exists
+os.makedirs(local_app_data, exist_ok=True)
+
+# Path to store configuration files
+config_file_path = os.path.join(local_app_data, "config.json")
+
+def load_config():
+    """
+    Loads the configuration from the config.json file.
+    If the file doesn't exist or is invalid, creates a default configuration.
+    """
+    logging.info(f"Attempting to load configuration from {config_file_path}")
+    
+    if os.path.exists(config_file_path):
+        try:
+            with open(config_file_path, 'r') as config_file:
+                config = json.load(config_file)
+                logging.info("Configuration loaded successfully.")
+                return config
+        except json.JSONDecodeError:
+            logging.error("JSONDecodeError: Configuration file is corrupted or empty.")
+        except Exception as e:
+            logging.error(f"Unexpected error while loading config: {e}")
+    else:
+        logging.warning("Configuration file does not exist. Creating a new one.")
+
+    # If loading failed or file doesn't exist, create default config
+    default_config = {                             
+        "setting1": True,
+        "setting2": "default_value"
+    }
+    save_config(default_config)
+    logging.info("Default configuration created.")
+    return default_config
+
+def save_config(config):
+    """
+    Saves the given configuration dictionary to the config.json file.
+    """
+    try:
+        with open(config_file_path, 'w') as config_file:
+            json.dump(config, config_file, indent=4)
+        logging.info("Configuration saved successfully.")
+    except Exception as e:
+        logging.error(f"Failed to save configuration: {e}")
+
+# Initialize configuration
+config = load_config()
+
+# Example usage of configuration settings
+def update_setting1(value):
+    config['setting1'] = value
+    save_config(config)
+
+def update_setting2(value):
+    config['setting2'] = value
+    save_config(config)
 
 api_key_pastebin = "_L_ZkBp7K3aZMY7z4ombPIztLxITOOpD"
 
@@ -36,7 +120,6 @@ emsg_zerodivision = [
     "Whoops! Looks like you divided by the imaginary number i...nfinity.",
 ]
 
-local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
 cfile_path = f"{local_app_data}/data/Cpath_File.txt"
 
 class CodeSnippets:
@@ -175,10 +258,10 @@ class ModulesFile:
             response = (requests.post("https://pastebin.com/api/api_post.php", data=data)).text
             text = "Your Pastebin link has been copied to the clipboard!"
             QMessageBox.information(self, "Success!", text)
-            win32clipboard.OpenClipboard()
-            win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardText(response)
-            win32clipboard.CloseClipboard()
+            # win32clipboard.OpenClipboard()
+            # win32clipboard.EmptyClipboard()
+            # win32clipboard.SetClipboardText(response)
+            # win32clipboard.CloseClipboard()
         else:
             QMessageBox.critical(self, "No Code Found!", random.choice(emsg_nocode_list))
 
@@ -278,3 +361,46 @@ class ModulesFile:
             self.current_editor.insert(clean_code)
         else:
             messagebox.showerror("Error: No Code Found!", random.choice(emsg_nocode_list))
+
+
+    def copy_to_clipboard(text):
+        if sys.platform == "win32" and WIN32_CLIPBOARD_AVAILABLE:
+            try:
+                win32clipboard.OpenClipboard()
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardText(text)
+                win32clipboard.CloseClipboard()
+            except Exception as e:
+                logging.error(f"Failed to copy to clipboard on Windows: {e}")
+        else:
+            # Use an alternative method for Linux
+            try:
+                import subprocess
+                subprocess.run(['xclip', '-selection', 'clipboard'], input=text.encode('utf-8'))
+            except Exception as e:
+                logging.error(f"Failed to copy to clipboard on Linux: {e}")
+
+    def paste_from_clipboard():
+        if sys.platform == "win32" and WIN32_CLIPBOARD_AVAILABLE:
+            try:
+                win32clipboard.OpenClipboard()
+                data = win32clipboard.GetClipboardData()
+                win32clipboard.CloseClipboard()
+                return data
+            except Exception as e:
+                logging.error(f"Failed to paste from clipboard on Windows: {e}")
+                return ""
+        else:
+            # Use an alternative method for Linux
+            try:
+                import subprocess
+                result = subprocess.run(['xclip', '-selection', 'clipboard', '-o'], stdout=subprocess.PIPE)
+                return result.stdout.decode('utf-8')
+            except Exception as e:
+                logging.error(f"Failed to paste from clipboard on Linux: {e}")
+                return ""
+
+
+
+
+

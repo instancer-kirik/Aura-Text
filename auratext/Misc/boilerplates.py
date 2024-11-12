@@ -1,5 +1,5 @@
 import os
-
+import sys
 from PyQt6.QtWidgets import (
     QMainWindow,
     QInputDialog,
@@ -17,7 +17,16 @@ from PyQt6.QtWidgets import (
     QLabel,
     QDialog)
 
-local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
+# Determine the appropriate application data directory based on the OS
+if sys.platform == "win32":
+    local_app_data = os.path.join(os.getenv("LOCALAPPDATA"), "AuraText")
+elif sys.platform == "darwin":
+    local_app_data = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "AuraText")
+else:
+    local_app_data = os.path.join(os.path.expanduser("~"), ".local", "share", "AuraText")
+
+# Ensure the directory exists
+os.makedirs(local_app_data, exist_ok=True)
 
 class BoilerPlate(QDialog):
     def __init__(self, current_editor):
