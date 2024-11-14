@@ -313,8 +313,8 @@ class TerminalEmulator(QWidget):
         self.terminal.setTextCursor(cursor)
 
     def terminal_key_press_event(self, event: QKeyEvent):
-        self.logger.debug(f"Key pressed: {event.text()}")
-        self.keyPressed.emit(event.text())  # Emit the keyPressed signal
+        self.logger.debug(f"Key pressed: {str(event.text())}")
+        self.keyPressed.emit(str(event.text()))
         try:
             current_time = time.time()
             if self.last_key_press_time:
@@ -324,35 +324,35 @@ class TerminalEmulator(QWidget):
 
             cursor = self.terminal.textCursor()
             
-            # Ensure the cursor is at the end of the document
+            # Ensure cursor is at the end
             cursor.movePosition(QTextCursor.MoveOperation.End)
             self.terminal.setTextCursor(cursor)
 
             if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
                 self.execute_command()
-                self.queue_particles(cursor.position(), QColor(0, 255, 0), 20)  # Green particles for execution
+                self.queue_particles(cursor.position(), QColor(0, 255, 0), 20)
             elif event.key() == Qt.Key.Key_Backspace:
                 if len(self.current_command) > 0:
                     self.current_command = self.current_command[:-1]
                     cursor.deletePreviousChar()
-                    self.queue_particles(cursor.position(), QColor(255, 0, 0), 15)  # Red particles for deletion
-                    self.shake(200)  # Short shake for deletion
+                    self.queue_particles(cursor.position(), QColor(255, 0, 0), 15)
+                    self.shake(200)
             elif event.key() == Qt.Key.Key_Up:
                 self.show_previous_command()
             elif event.key() == Qt.Key.Key_Down:
                 self.show_next_command()
             else:
                 if event.text().isprintable():
-                    self.current_command += event.text()
+                    self.current_command += str(event.text())
                     if self.typing_effect_enabled:
-                        self.type_with_effect(event.text())
+                        self.type_with_effect(str(event.text()))
                     else:
-                        self.insert_character(event.text())
+                        self.insert_character(str(event.text()))
 
             self.terminal.ensureCursorVisible()
             event.accept()
         except Exception as e:
-            print(f"Error in terminal_key_press_event: {e}")
+            self.logger.error(f"Error in terminal_key_press_event: {str(e)}")
 
     def type_with_effect(self, text):
         for char in text:

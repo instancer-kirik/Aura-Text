@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import platform
 
 from PyQt6.QtCore import QProcess, Qt, pyqtSignal, QStringListModel
 from PyQt6.QtGui import QColor, QFont, QIcon, QKeyEvent, QTextCursor, QStandardItemModel, QStandardItem
@@ -57,7 +58,17 @@ class TerminalEmulator(QWidget):
 
         self.addNewTab()
 
-        self.local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
+        # Determine the local app data path based on the operating system
+        if platform.system() == "Windows":
+            self.local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
+        else:
+            # Use XDG base directory specification for Linux
+            self.local_app_data = os.path.join(os.path.expanduser("~"), ".local", "share", "AuraText")
+
+        # Ensure the directory exists
+        if not os.path.exists(self.local_app_data):
+            os.makedirs(self.local_app_data)
+
         self.history_file = os.path.join(self.local_app_data, "data", "terminal_history.txt")
 
         # Initialize the completer
@@ -141,8 +152,18 @@ class TerminalEmulator(QWidget):
         self.processes.append(process)
         self.terminal_selector.setCurrentIndex(index)
 
-        local_app_data = os.path.join(os.getenv("LocalAppData"), "AuraText")
-        #cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
+        # Check if LocalAppData is set
+        local_app_data = os.getenv("LocalAppData")
+        if local_app_data is None:
+            logging.error("LocalAppData environment variable is not set.")
+            # Set a default path or handle the error as needed
+            local_app_data = os.path.join(os.path.expanduser("~"), "AuraText")  # Default to user's home directory
+
+        # Ensure the directory exists
+        if not os.path.exists(local_app_data):
+            os.makedirs(local_app_data)
+
+        # cpath = open(f"{local_app_data}/data/CPath_Project.txt", "r+").read()
         cpath = ""
         self.start_powershell(index, project_path=cpath)
 

@@ -1,7 +1,7 @@
 from PyQt6.Qsci import QsciScintilla, QsciAPIs, QsciLexerPython, QsciLexerCPP
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QTextBrowser, QComboBox, QLabel, QPushButton, QSpacerItem, QSizePolicy
-from PyQt6.QtGui import QColor, QPainter, QTextFormat, QImage, QKeySequence, QShortcut, QKeyEvent, QAction
-from PyQt6.QtCore import Qt, QTimer, QRect, QSize, QStringListModel
+from PyQt6.QtGui import QColor, QPainter, QTextFormat, QImage,  QKeySequence, QShortcut, QKeyEvent, QAction
+from PyQt6.QtCore import Qt, QTimer, QRect, QSize, QStringListModel,   QEvent
 import logging
 import os
 import re
@@ -18,6 +18,7 @@ from PyQt6.QtGui import QKeySequence, QTextCursor
 import random
 from GUX.find_and_replace_and_cursors import FindReplaceWidget
 from HMC.cursor_text_manager import EditorCursorManager, Cursor
+from pathlib import Path
 
 class CustomQsciScintilla(QsciScintilla):
     def __init__(self, parent=None):
@@ -163,7 +164,7 @@ class CodeEditor(QWidget):
         self.text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
     def setup_connections(self):
-        self.text_edit.textChanged.connect(self.update_file_outline)
+        self.text_edit.textChanged.connect(lambda: self.update_file_outline(self.text_edit.text()))
         self.text_edit.textChanged.connect(self.on_text_changed)   
         self.fileset_selector.currentTextChanged.connect(self.on_fileset_changed)
         
@@ -237,9 +238,14 @@ class CodeEditor(QWidget):
             line_end = self.text_edit.positionFromLineIndex(line + 1, 0)
             self.text_edit.SendScintilla(QsciScintilla.SCI_INDICATORFILLRANGE, line_start, line_end - line_start)
 
-    def update_file_outline(self):
-        text = self.text_edit.text()
-        self.file_outline_widget.populate_file_outline(text)
+    def update_file_outline(self, text):
+        """Update the file outline based on the current text."""
+        if self.file_outline_widget:
+            # Use ProjectManager to get symbols for the current file
+            if hasattr(self.mm, 'project_manager'):
+                symbols = self.mm.project_manager.get_file_symbols(Path(self.file_path))
+                flow_map = {Path(self.file_path): symbols}
+                self.file_outline_widget.populate_project_outline(flow_map)
 
     def highlight_current_line(self):
         self.text_edit.SendScintilla(QsciScintilla.SCI_SETINDICATORCURRENT, 0)
@@ -458,8 +464,8 @@ class CodeEditor(QWidget):
                     line, index = self.text_edit.getCursorPosition()
                     self.mm.lsp_manager.request_completions(self.file_path, line, index)
 
-        # Update the file outline
-        self.update_file_outline()
+        # Update the file outline with the entire text
+        self.update_file_outline(self.text_edit.text())  # Pass the entire text of the editor
 
         # If it's a markdown file, update the preview
         if self.current_language == 'markdown':

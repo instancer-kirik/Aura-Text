@@ -8,7 +8,7 @@ import logging
 import traceback
 import time
 import webbrowser
-from tkinter import filedialog
+#from tkinter import filedialog
 import git
 from AuraText.auratext.Components.powershell import TerminalEmulator
 import pyjokes
