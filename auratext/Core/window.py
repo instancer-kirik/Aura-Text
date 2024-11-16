@@ -78,7 +78,7 @@ from AuraText.auratext.Components.shortcuts_dialog import ShortcutsDialog
 from PyQt6.QtGui import QShortcut, QMouseEvent
 from GUX.file_tree_view import FileTreeView
 from PyQt6.QtWidgets import QStackedWidget
-from HMC.project_manager import ProjectManagerWidget
+from HMC.projects.project_manager_widget import ProjectManagerWidget
 from GUX.file_search_widget import FileSearchWidget
 from pathlib import Path
 import platform
@@ -1033,8 +1033,12 @@ class AuraTextWindow(QMainWindow):
 
 
     def create_projects_manager_widget(self):
-        self.projects_manager_widget = ProjectManagerWidget(parent=self, cccore=self.mm , window=self)
-        self.projects_manager_dock = self.mm.widget_manager.add_dock_widget(self.projects_manager_widget, "Projects Manager", Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.projects_manager_widget = ProjectManagerWidget(parent=self, cccore=self.mm)
+        self.projects_manager_dock = self.mm.widget_manager.add_dock_widget(
+            self.projects_manager_widget, 
+            "Projects Manager", 
+            Qt.DockWidgetArea.LeftDockWidgetArea
+        )
     def show_recent_projects_menu(self):
         self.recent_projects_menu.exec(self.recent_projects_button.mapToGlobal(self.recent_projects_button.rect().bottomLeft()))
 

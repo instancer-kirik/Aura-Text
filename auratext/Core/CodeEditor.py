@@ -11,7 +11,7 @@ from GUX.markdown_viewer import MarkdownViewer
 from GUX.widgets.file_outline_widget import FileOutlineWidget
 from .search_and_line_number import Search
 from .Modules import ModulesFile
-from HMC.settings_manager import SettingsManager
+
 from PyQt6.QtWidgets import QMenu, QCompleter
 from PyQt6.QtCore import pyqtSignal, QPoint
 from PyQt6.QtGui import QKeySequence, QTextCursor
@@ -34,6 +34,15 @@ class CustomQsciScintilla(QsciScintilla):
         self.setMarginType(0, QsciScintilla.MarginType.NumberMargin)
         self.setMarginWidth(0, "0000")  # Adjust width as needed
 
+        # Add scroll zone settings
+        self.scroll_zone_size = 50  # pixels from edge
+        self.fast_scroll_multiplier = 3
+        self.scroll_timer = QTimer(self)
+        self.scroll_timer.timeout.connect(self.handle_scroll_zones)
+        self.scroll_timer.setInterval(16)  # ~60fps
+        self.current_scroll_speed = 0
+        self.is_in_scroll_zone = False
+
     def paintEvent(self, event):
         super().paintEvent(event)
         self.SendScintilla(QsciScintilla.SCI_SETCARETLINEBACK, self.forced_line_color.rgb() & 0xFFFFFF)
@@ -53,6 +62,34 @@ class CustomQsciScintilla(QsciScintilla):
         self.forced_line_color = QColor(color)
         self.forced_line_alpha = alpha
         self.update()
+
+    def wheelEvent(self, event):
+        # Get mouse position relative to the scrollbar
+        scrollbar = self.verticalScrollBar()
+        mouse_pos = event.position().y()
+        scrollbar_height = scrollbar.height()
+        
+        # Check if in scroll zones
+        if mouse_pos < self.scroll_zone_size:  # Top zone
+            self.current_scroll_speed = event.angleDelta().y() * self.fast_scroll_multiplier
+            self.is_in_scroll_zone = True
+            self.scroll_timer.start()
+        elif mouse_pos > (scrollbar_height - self.scroll_zone_size):  # Bottom zone
+            self.current_scroll_speed = event.angleDelta().y() * self.fast_scroll_multiplier
+            self.is_in_scroll_zone = True
+            self.scroll_timer.start()
+        else:
+            self.is_in_scroll_zone = False
+            self.scroll_timer.stop()
+            super().wheelEvent(event)  # Normal scrolling in middle zone
+
+    def handle_scroll_zones(self):
+        if self.is_in_scroll_zone and self.current_scroll_speed != 0:
+            scrollbar = self.verticalScrollBar()
+            new_value = scrollbar.value() - (self.current_scroll_speed / 8)  # Adjust divisor to control speed
+            scrollbar.setValue(int(new_value))
+        else:
+            self.scroll_timer.stop()
 
 class EditorContextBar(QWidget):
     def __init__(self, editor, parent=None):
@@ -126,7 +163,7 @@ class CodeEditor(QWidget):
         self.debug_colors = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF"]
         self.current_debug_color = 0
         
-        self.settings_manager = mm.settings_manager
+        self.settings_manager = mm.config_manager
         self.load_typing_effect_settings()
 
         logging.info("CodeEditor initialization complete")
@@ -1044,3 +1081,24 @@ class CodeEditor(QWidget):
             self.apply_edit(event)
         self.update_context_bar()
         super().keyPressEvent(event)
+
+    def mask_sensitive_string(self, sensitive_string: str) -> str:
+        """Generate a masked string and a color based on the numeric string."""
+        # Generate a color based on the numeric string
+        color_value = sum(int(digit) for digit in sensitive_string if digit.isdigit()) % 256
+        color = QColor(color_value, 100, 150)  # Example color generation
+
+        # Create a masked representation
+        masked_string = '*' * len(sensitive_string)
+
+        # Update the UI to show the masked string with the generated color
+        self.display_masked_string(masked_string, color)
+
+        return masked_string
+
+    def display_masked_string(self, masked_string: str, color: QColor):
+        """Display the masked string in a QLabel with the specified color."""
+        label = QLabel(masked_string, self)
+        label.setStyleSheet(f"color: {color.name()}; font-weight: bold;")
+        # Add the label to your layout or set its position as needed
+        self.layout().addWidget(label)

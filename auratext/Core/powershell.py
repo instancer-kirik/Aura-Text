@@ -16,12 +16,18 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QPainter
+from typing import Optional, Dict
 from PyQt6.QtCore import QPointF
 import time
 from ..scripts.def_path import resource
 from GUX.visual_effects import ParticleEffect, ParticleOverlay
 import random
+from PyQt6.QtCore import QProcessEnvironment
+import platform
+from PyQt6.QtWidgets import QLabel
 import logging
+import math
+from GUX.overlay import Overlay
 newTerminalIcon = resource(r"../media/terminal/new.svg")
 killTerminalIcon = resource(r"../media/terminal/remove.svg")
 
@@ -36,62 +42,304 @@ class TerminalEmulator(QWidget):
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         
-        self.terminal = QPlainTextEdit(self)
-        self.layout.addWidget(self.terminal)
+        # Initialize logger first
+        self.logger = logging.getLogger(__name__)
         
-        try:
-            self.particle_effect = ParticleEffect(self)
-            self.particle_overlay = ParticleOverlay(self)
-            self.particle_overlay.setGeometry(self.rect())
-            self.particle_overlay.particle_effect = self.particle_effect
-            self.layout.addWidget(self.particle_overlay)
-        except Exception as e:
-            logging.error(f"Error initializing particle effects: {e}")
-            self.particle_effect = None
-            self.particle_overlay = None
-        
-        self.shake_offset = QPointF(0, 0)
-        self.shake_timer = QTimer(self)
-        self.shake_timer.timeout.connect(self.update_shake)
-        
-        self.typing_effect_enabled = True
-        self.typing_effect_speed = 100
-        self.typing_effect_particle_count = 10
-        self.last_key_press_time = 0
-        self.typing_speed = 0
-        
-        self.setup_terminal()
-        self.setup_toolbar()
-
-        self.splitter = QSplitter(Qt.Orientation.Vertical)
-        self.layout.addWidget(self.splitter)
-
-        self.splitter.addWidget(self.terminal)
-
+        # Initialize attributes
         self.processes = []
         self.current_process_index = -1
-
+        self.current_env = None
+        self.current_command = ""
         self.command_history = []
         self.history_index = 0
-
-        self.current_command = ""
         self.prompt = "> "
-
-        self.addNewTab()
+        self.last_key_press_time = None
+        self.typing_speed = 0
+        
+        # Create UI components in correct order
+        self.shell_combo = QComboBox()  # Create combo box first
+        self.available_shells = self.detect_available_shells()  # Then detect shells
+        
+        # Setup UI components
+        self.terminal = QPlainTextEdit()
+        self.setup_terminal()
+        
+        # Create toolbars in correct order
+        self.setup_shell_toolbar()
+        self.setup_main_toolbar()
+        
+        # Add terminal to layout
+        self.layout.addWidget(self.terminal)
+        
+        # Initialize particle effects
+        self.particle_effect = None
+        self.particle_overlay = None
+        self.particle_timer = None
+        self.typing_effect_enabled = False
+        
+        if self.should_enable_particles():
+            self.init_particle_effects()
         self.load_typing_effect_settings()
+        
+        # Add initial terminal tab
+        self.addNewTab()
 
-        # Add a timer for particle updates
-        self.particle_timer = QTimer(self)
-        self.particle_timer.timeout.connect(self.update_particles)
-        self.particle_timer.start(16)  # 60 FPS
+    def setup_main_toolbar(self):
+        """Setup main toolbar with terminal controls"""
+        toolbar = QWidget()
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(5, 0, 5, 0)
 
-        # Set up logging for this class
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.DEBUG)
+        # Terminal selector
+        self.terminal_selector = QComboBox()
+        self.terminal_selector.setStyleSheet("QComboBox { min-width: 150px; }")
+        self.terminal_selector.currentIndexChanged.connect(self.switchTab)
 
-        # Connect the keyPressed signal to the InputManager if available
-        if self.mm and hasattr(self.mm, 'input_manager'):
-            self.keyPressed.connect(self.mm.input_manager.update_typing_speed)
+        # Terminal control buttons
+        new_terminal_button = QPushButton(QIcon(newTerminalIcon), "")
+        kill_terminal_button = QPushButton(QIcon(killTerminalIcon), "")
+        toggle_effect_button = QPushButton("Toggle Effect")
+
+        for btn in [new_terminal_button, kill_terminal_button, toggle_effect_button]:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: transparent;
+                    color: white;
+                    border: none;
+                    padding: 5px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(255, 255, 255, 0.1);
+                }
+            """)
+
+        new_terminal_button.clicked.connect(self.addNewTab)
+        kill_terminal_button.clicked.connect(self.killCurrentTerminal)
+        toggle_effect_button.clicked.connect(self.toggle_typing_effect)
+
+        toolbar_layout.addWidget(self.terminal_selector)
+        toolbar_layout.addWidget(new_terminal_button)
+        toolbar_layout.addWidget(kill_terminal_button)
+        toolbar_layout.addWidget(toggle_effect_button)
+        toolbar_layout.addStretch()
+
+        self.layout.addWidget(toolbar)
+
+    
+
+    def addNewTab(self):
+        """Add new terminal tab with current shell and environment"""
+        index = self.terminal_selector.count()
+        self.terminal_selector.addItem(f"Terminal {index + 1}")
+        
+        process = QProcess(self)
+        process.readyReadStandardOutput.connect(self.handle_stdout)
+        process.readyReadStandardError.connect(self.handle_stderr)
+        
+        self.processes.append(process)
+        self.terminal_selector.setCurrentIndex(index)
+        
+        # Start shell with current settings
+        shell_name = self.shell_combo.currentText()
+        self.start_shell(index=index, shell_name=shell_name)
+
+    def start_shell(self, index: Optional[int] = None, shell_name: Optional[str] = None):
+        """Start or restart shell process with current environment
+        
+        Args:
+            index (Optional[int]): Process index for multi-tab support. If None, uses single process mode
+            shell_name (Optional[str]): Name of shell to start. If None, uses current selection
+        """
+        try:
+            # Get shell path
+            shell_path = self.available_shells.get(
+                shell_name or self.shell_combo.currentText()
+            )
+            
+            if not shell_path:
+                raise ValueError(f"Shell not found: {shell_name}")
+                
+            # Set up environment
+            env = QProcess.systemEnvironment()
+            process_env = QProcessEnvironment.systemEnvironment()
+            if self.current_env:
+                for k, v in self.current_env.items():
+                    process_env.insert(k, v)
+            
+            # Handle single vs multi-process mode
+            if index is not None:
+                # Multi-tab mode
+                process = self.processes[index]
+                process.setProcessEnvironment(process_env)
+                process.start(shell_path)
+                self.terminal.appendPlainText(f"Started {shell_name} shell\n")
+            else:
+                # Single process mode (legacy support)
+                if hasattr(self, 'process'):
+                    self.process.terminate()
+                    self.process.waitForFinished()
+                    
+                self.process = QProcess()
+                self.process.readyReadStandardOutput.connect(self.handle_output)
+                self.process.readyReadStandardError.connect(self.handle_error)
+                self.process.setProcessEnvironment(process_env)
+                self.process.start(shell_path)
+                
+        except Exception as e:
+            error_msg = f"Error starting shell: {e}"
+            self.terminal.appendPlainText(f"{error_msg}\n")
+            self.logger.error(error_msg)
+
+    def should_enable_particles(self) -> bool:
+        """Check if particle effects should be enabled"""
+        try:
+            # First check if we have the required components
+            if not hasattr(self, 'mm') or not self.mm:
+                return False
+            
+            if not hasattr(self.mm, 'config_manager'):
+                return False
+            
+            # Then check the configuration
+            return self.mm.config_manager.get_typing_effect_enabled()
+        except Exception as e:
+            self.logger.error(f"Error checking particle settings: {e}")
+            return False
+
+    def init_particle_effects(self):
+        """Initialize particle effects using the existing overlay system"""
+        try:
+            self.logger.debug("Starting particle effects initialization")
+            
+            if not self.should_enable_particles():
+                self.logger.debug("Particles disabled by configuration")
+                self.typing_effect_enabled = False
+                return
+            
+            # Ensure CCCore has an overlay
+            if not hasattr(self.mm, 'overlay'):
+                self.logger.debug("Creating new CompositeOverlay for CCCore")
+                from GUX.overlay import CompositeOverlay
+                overlay = CompositeOverlay(
+                    self.mm,
+                    flashlight_size=200,
+                    flashlight_power=0.6,
+                    serial_port=None
+                )
+                self.mm.set_overlay(overlay)
+                overlay.show()
+                overlay.raise_()
+            
+            self.logger.debug(f"Using overlay: {self.mm.overlay}")
+            
+            # Create particle layer
+            class ParticleLayer(QWidget):
+                def __init__(self, parent=None):
+                    super().__init__(parent)
+                    self.particle_effect = None
+                    self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                    self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+                    self.setWindowFlags(Qt.WindowType.FramelessWindowHint | 
+                                      Qt.WindowType.WindowStaysOnTopHint |
+                                      Qt.WindowType.Tool)
+                    
+                def paintEvent(self, event):
+                    if not self.particle_effect:
+                        return
+                    painter = QPainter(self)
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    self.particle_effect.draw(painter)
+                    
+            # Create particle effect
+            self.particle_effect = ParticleEffect(self)
+            
+            # Add particle layer to composite overlay
+            self.particle_layer = ParticleLayer(self.mm.overlay)
+            self.particle_layer.particle_effect = self.particle_effect
+            self.particle_layer.resize(self.size())
+            
+            # Add to overlay's layout
+            if not self.mm.overlay.layout():
+                layout = QVBoxLayout(self.mm.overlay)
+                self.mm.overlay.setLayout(layout)
+            self.mm.overlay.layout().addWidget(self.particle_layer)
+            
+            # Show layers
+            self.particle_layer.show()
+            self.particle_layer.raise_()
+            
+            # Configure update timer
+            self.particle_timer = QTimer()
+            self.particle_timer.timeout.connect(self.update_particles)
+            self.particle_timer.start(16)  # 60 FPS
+            
+            self.typing_effect_enabled = True
+            self.logger.debug("Particle effects initialized successfully")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize particle effects: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+
+    def disable_particle_effects(self):
+        """Safely disable and cleanup particle effects"""
+        self.typing_effect_enabled = False
+        
+        if self.particle_timer:
+            self.particle_timer.stop()
+            self.particle_timer = None
+            
+        if self.particle_overlay:
+            self.particle_overlay.hide()
+            self.particle_overlay.deleteLater()
+            self.particle_overlay = None
+            
+        if self.particle_effect:
+            self.particle_effect = None
+            
+        self.logger.debug("Particle effects disabled")
+
+    def resizeEvent(self, event):
+        """Handle resize events"""
+        super().resizeEvent(event)
+        if hasattr(self, 'particle_layer'):
+            self.particle_layer.resize(self.size())
+            self.particle_layer.move(self.mapToGlobal(self.rect().topLeft()))
+
+    def moveEvent(self, event):
+        """Handle move events"""
+        super().moveEvent(event)
+        if hasattr(self, 'particle_layer'):
+            self.particle_layer.move(self.mapToGlobal(self.rect().topLeft()))
+
+    def cleanup(self):
+        """Cleanup resources before destruction"""
+        try:
+            if hasattr(self, 'particle_overlay'):
+                self.disable_particle_effects()
+                
+            if hasattr(self, 'processes'):
+                for process in self.processes:
+                    if process and process.state() != QProcess.ProcessState.NotRunning:
+                        process.terminate()
+                        process.waitForFinished(1000)  # Wait up to 1 second
+                        
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error during cleanup: {e}")
+            else:
+                logging.error(f"Error during cleanup: {e}")
+
+    def closeEvent(self, event):
+        """Handle close event"""
+        try:
+            self.cleanup()
+        except Exception as e:
+            if hasattr(self, 'logger'):
+                self.logger.error(f"Error in close event: {e}")
+            else:
+                logging.error(f"Error in close event: {e}")
+        super().closeEvent(event)
 
     def setup_terminal(self):
         # Set up terminal appearance and behavior
@@ -115,83 +363,6 @@ class TerminalEmulator(QWidget):
         font = QFont(font_families[0], 10)
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.terminal.setFont(font)
-
-    def setup_toolbar(self):
-        toolbar = QWidget()
-        toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(5, 0, 5, 0)
-
-        toolbar_layout.addStretch(1)
-
-        self.terminal_selector = QComboBox()
-        self.terminal_selector.setStyleSheet("QComboBox { min-width: 150px; }")
-        self.terminal_selector.currentIndexChanged.connect(self.switchTab)
-
-        new_terminal_button = QPushButton()
-        new_terminal_button.setIcon(QIcon(newTerminalIcon))
-        new_terminal_button.setStyleSheet(
-            """
-            QPushButton {
-                font-size: 16px;
-                font-weight: bold;
-                background-color: transparent;
-                color: white;
-                border: none;
-                padding: 0;
-            }
-        """
-        )
-        new_terminal_button.setToolTip("New Terminal")
-        new_terminal_button.clicked.connect(self.addNewTab)
-
-        kill_terminal_button = QPushButton()
-        kill_terminal_button.setIcon(QIcon(killTerminalIcon))
-        kill_terminal_button.setToolTip("Kill Terminal")
-        kill_terminal_button.setStyleSheet(
-            """
-            QPushButton {
-                font-size: 16px;
-                font-weight: bold;
-                background-color: transparent;
-                color: white;
-                border: none;
-                padding: 0;
-            }
-        """
-        )
-        kill_terminal_button.clicked.connect(self.killCurrentTerminal)
-
-        toggle_effect_button = QPushButton("Toggle Typing Effect")
-        toggle_effect_button.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: white;
-                border: 1px solid white;
-                padding: 5px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.1);
-            }
-        """)
-        toggle_effect_button.clicked.connect(self.toggle_typing_effect)
-
-        toolbar_layout.addWidget(self.terminal_selector)
-        toolbar_layout.addWidget(new_terminal_button)
-        toolbar_layout.addWidget(kill_terminal_button)
-        toolbar_layout.addWidget(toggle_effect_button)
-        toolbar_layout.addStretch()
-
-        self.layout.addWidget(toolbar)
-
-    def addNewTab(self):
-        index = self.terminal_selector.count()
-        self.terminal_selector.addItem(f"Terminal {index + 1}")
-        process = QProcess(self)
-        process.readyReadStandardOutput.connect(self.handle_stdout)
-        process.readyReadStandardError.connect(self.handle_stderr)
-        self.processes.append(process)
-        self.terminal_selector.setCurrentIndex(index)
-        self.start_powershell(index)
 
     def killCurrentTerminal(self):
         if self.current_process_index >= 0:
@@ -360,39 +531,88 @@ class TerminalEmulator(QWidget):
             QTimer.singleShot(random.randint(50, self.typing_effect_speed), lambda c=char: self.insert_character(c))
 
     def insert_character(self, char):
-        self.logger.debug(f"Inserting character: {char}")
+        """Safely insert character with optional effects"""
         try:
+            # Basic character insertion
             cursor = self.terminal.textCursor()
             cursor.insertText(char)
             self.terminal.setTextCursor(cursor)
-            
-            rect = self.terminal.cursorRect(cursor)
-            pos = self.terminal.mapTo(self.particle_overlay, rect.center())
-            
-            self.queue_particles(pos, QColor(255, 255, 255), self.typing_effect_particle_count)
             self.terminal.ensureCursorVisible()
+            
+            # Only add particles if effects are enabled and properly initialized
+            if (self.typing_effect_enabled and 
+                self.particle_effect is not None and 
+                self.particle_overlay is not None):
+                
+                # Get cursor position in global coordinates
+                rect = self.terminal.cursorRect(cursor)
+                global_pos = self.terminal.mapToGlobal(rect.center())
+                local_pos = self.particle_overlay.mapFromGlobal(global_pos)
+                
+                # Add particles with random dispersion
+                if self.particle_overlay and not self.particle_overlay.isHidden():
+                    self.queue_particles(local_pos, QColor(255, 255, 255), 
+                                      self.typing_effect_particle_count)
+                    
         except Exception as e:
-            print(f"Error in insert_character: {e}")
+            self.logger.error(f"Error in insert_character: {e}")
 
     def queue_particles(self, pos, color, count):
-        QTimer.singleShot(0, lambda: self.add_particles(pos, color, count))
+        """Safely queue particle effects"""
+        try:
+            if not self.typing_effect_enabled or not self.particle_effect:
+                return
+            
+            QTimer.singleShot(0, lambda: self.add_particles(pos, color, count))
+        except Exception as e:
+            self.logger.error(f"Error queueing particles: {e}")
 
     def add_particles(self, pos, color, count):
+        """Add particles at the specified position"""
         try:
-            self.particle_effect.add_particles(pos, color, count)
+            if not self.typing_effect_enabled or not self.particle_effect:
+                return
+            
+            # Convert terminal coordinates to screen coordinates
+            screen_pos = self.mapToGlobal(pos)
+            self.logger.debug(f"Screen position: {screen_pos}")
+            
+            # Convert screen coordinates to overlay coordinates
+            if hasattr(self, 'particle_layer'):
+                overlay_pos = self.particle_layer.mapFromGlobal(screen_pos)
+                self.logger.debug(f"Overlay position: {overlay_pos}")
+                
+                # Add particles with random dispersion
+                for _ in range(count):
+                    angle = random.uniform(0, 2 * math.pi)
+                    speed = random.uniform(1, 5)
+                    velocity = QPointF(
+                        math.cos(angle) * speed,
+                        math.sin(angle) * speed
+                    )
+                    self.particle_effect.add_particle(overlay_pos, color, velocity)
+                    self.logger.debug(f"Added particle at {overlay_pos}")
+                
         except Exception as e:
-            print(f"Error in add_particles: {e}")
+            self.logger.error(f"Error adding particles: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
 
     def update_particles(self):
+        """Update particle positions and redraw"""
+        if not self.typing_effect_enabled:
+            return
+        
         try:
-            self.particle_effect.update_particles()
-            self.particle_overlay.update()
+            if self.particle_effect and self.particle_layer:
+                self.particle_effect.update()
+                self.particle_layer.update()
+                self.logger.debug("Particles updated")
         except Exception as e:
-            print(f"Error in update_particles: {e}")
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.particle_overlay.setGeometry(self.rect())
+            self.logger.error(f"Error updating particles: {e}")
+            self.typing_effect_enabled = False
+            import traceback
+            self.logger.error(traceback.format_exc())
 
     def update_shake(self):
         self.shake_offset = QPointF(random.uniform(-2, 2), random.uniform(-2, 2))
@@ -462,13 +682,142 @@ class TerminalEmulator(QWidget):
         self.typing_effect_enabled = not self.typing_effect_enabled
 
     def load_typing_effect_settings(self):
-        if hasattr(self, 'mm') and hasattr(self.mm, 'settings_manager'):
-            settings_manager = self.mm.settings_manager
-            self.typing_effect_enabled = settings_manager.get_typing_effect_enabled()
-            self.typing_effect_speed = settings_manager.get_typing_effect_speed()
-            self.typing_effect_particle_count = settings_manager.get_typing_effect_particle_count()
+        """Load typing effect settings with proper defaults"""
+        try:
+            if hasattr(self, 'mm') and hasattr(self.mm, 'config_manager'):
+                settings_manager = self.mm.config_manager
+                self.typing_effect_enabled = settings_manager.get_typing_effect_enabled()
+                self.typing_effect_speed = settings_manager.get_typing_effect_speed()
+                self.typing_effect_particle_count = settings_manager.get_typing_effect_particle_count()
+            else:
+                # Default values if settings_manager is not available
+                self.typing_effect_enabled = False  # Changed to False by default
+                self.typing_effect_speed = 100
+                self.typing_effect_particle_count = 10
+                self.logger.warning("Using default typing effect settings")
+        except Exception as e:
+            self.logger.error(f"Error loading typing effect settings: {e}")
+            self.typing_effect_enabled = False
+
+    def setup_shell_toolbar(self):
+        """Setup shell and environment selection toolbar"""
+        toolbar = QWidget()
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(5, 0, 5, 0)
+
+        # Configure existing shell selector
+        self.shell_combo.setStyleSheet("QComboBox { min-width: 120px; }")
+        self.shell_combo.addItems(self.available_shells.keys())
+        self.shell_combo.currentTextChanged.connect(self.change_shell)
+
+        # Environment selector
+        self.env_combo = QComboBox()
+        self.env_combo.setStyleSheet("QComboBox { min-width: 120px; }")
+        self.env_combo.currentTextChanged.connect(self.change_environment)
+
+        # Refresh button
+        refresh_btn = QPushButton("⟳")
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: white;
+                border: 1px solid white;
+                padding: 2px 5px;
+            }
+        """)
+        refresh_btn.clicked.connect(self.refresh_environments)
+
+        # Add widgets to layout
+        for label, widget in [
+            ("Shell:", self.shell_combo),
+            ("Environment:", self.env_combo),
+            (None, refresh_btn)
+        ]:
+            if label:
+                toolbar_layout.addWidget(QLabel(label))
+            toolbar_layout.addWidget(widget)
+
+        toolbar_layout.addStretch()
+        self.layout.addWidget(toolbar)
+        self.refresh_environments()
+
+    def detect_available_shells(self) -> Dict[str, str]:
+        """Detect available shells on the system"""
+        shells = {}
+        
+        if platform.system() == "Windows":
+            shells["PowerShell"] = "powershell.exe"
+            shells["CMD"] = "cmd.exe"
+            if os.path.exists("C:\\Program Files\\Git\\bin\\bash.exe"):
+                shells["Git Bash"] = "C:\\Program Files\\Git\\bin\\bash.exe"
         else:
-            # Default values if settings_manager is not available
-            self.typing_effect_enabled = True
-            self.typing_effect_speed = 100
-            self.typing_effect_particle_count = 10
+            # Check common Unix shells
+            for shell in ["/bin/bash", "/bin/zsh", "/bin/fish", "/bin/sh"]:
+                if os.path.exists(shell):
+                    name = os.path.basename(shell)
+                    shells[name] = shell
+        
+        # Update shell selector
+        self.shell_combo.clear()
+        self.shell_combo.addItems(shells.keys())
+        
+        return shells
+
+    def refresh_environments(self):
+        """Refresh available project environments"""
+        try:
+            self.env_combo.clear()
+            self.env_combo.addItem("System Default")
+            
+            if self.mm and hasattr(self.mm, 'project_manager'):
+                # Get environments from project manager
+                for env_name in self.mm.project_manager.get_environments():
+                    self.env_combo.addItem(env_name)
+                    
+                # Add current project environment if exists
+                current_project = self.mm.project_manager.get_current_project()
+                if current_project:
+                    self.env_combo.addItem(f"Project: {current_project.name}")
+                    
+        except Exception as e:
+            logging.error(f"Error refreshing environments: {e}")
+
+    def change_shell(self, shell_name: str):
+        """Change current shell"""
+        if shell_name in self.available_shells:
+            self.restart_shell(shell_name)
+
+    def change_environment(self, env_name: str):
+        """Change current environment"""
+        try:
+            if env_name == "System Default":
+                self.current_env = None
+            elif env_name.startswith("Project: "):
+                project_name = env_name.replace("Project: ", "")
+                self.current_env = self.mm.project_manager.get_project_env(project_name)
+            else:
+                self.current_env = self.mm.project_manager.get_environment(env_name)
+                
+            self.restart_shell(self.shell_combo.currentText())
+            
+        except Exception as e:
+            logging.error(f"Error changing environment: {e}")
+
+    def restart_shell(self, shell_name: str):
+        """Restart shell with new settings"""
+        self.terminal.clear()
+        if self.current_process_index >= 0:
+            self.start_shell(index=self.current_process_index, shell_name=shell_name)
+        else:
+            self.start_shell(shell_name=shell_name)
+
+    def handle_output(self):
+        """Handle shell output"""
+        data = self.process.readAllStandardOutput().data().decode()
+        self.terminal.appendPlainText(data)
+
+    def handle_error(self):
+        """Handle shell errors"""
+        data = self.process.readAllStandardError().data().decode()
+        self.terminal.appendPlainText(data)
+      
