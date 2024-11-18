@@ -11,7 +11,7 @@ from GUX.markdown_viewer import MarkdownViewer
 from GUX.widgets.file_outline_widget import FileOutlineWidget
 from .search_and_line_number import Search
 from .Modules import ModulesFile
-from HMC.settings_manager import SettingsManager
+
 from PyQt6.QtWidgets import QMenu, QCompleter
 from PyQt6.QtCore import pyqtSignal, QPoint
 from PyQt6.QtGui import QKeySequence, QTextCursor

@@ -1494,11 +1494,13 @@ class AuraTextWindow(QMainWindow):
             
             current_project = self.mm.project_manager.get_current_project()
             if current_project:
-                index = self.project_selector.findText(current_project)
+                # Convert Project object to string (name) before using findText
+                project_name = current_project.name if hasattr(current_project, 'name') else str(current_project)
+                index = self.project_selector.findText(project_name)
                 if index >= 0:
                     self.project_selector.setCurrentIndex(index)
         self.update_recent_projects_menu()
-     # Update the ProjectsManagerWidget if it exists
+        # Update the ProjectsManagerWidget if it exists
         if self.projects_manager_widget is not None:
             self.projects_manager_widget.update_project_list()
     def open_file_from_chat(self, file_path):
