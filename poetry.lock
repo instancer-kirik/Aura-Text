@@ -96,7 +96,7 @@ files = [
 
 [package.dependencies]
 pyobjc-core = "5.3"
-pyobjc-framework-Accounts = {version = "5.3", markers = "platform_release >= \"12.0\""}
+pyobjc-framework-Acts = {version = "5.3", markers = "platform_release >= \"12.0\""}
 pyobjc-framework-AddressBook = "5.3"
 pyobjc-framework-AdSupport = {version = "5.3", markers = "platform_release >= \"18.0\""}
 pyobjc-framework-AppleScriptKit = "5.3"
@@ -217,14 +217,14 @@ files = [
 ]
 
 [[package]]
-name = "pyobjc-framework-accounts"
+name = "pyobjc-framework-acts"
 version = "5.3"
-description = "Wrappers for the framework Accounts on macOS"
+description = "Wrappers for the framework Acts on macOS"
 optional = false
 python-versions = "*"
 files = [
-    {file = "pyobjc-framework-Accounts-5.3.tar.gz", hash = "sha256:45a25df071b6524c2b8fbbe28c0ee20e751c487872626ee5a740a4a64ef38f28"},
-    {file = "pyobjc_framework_Accounts-5.3-py2.py3-none-any.whl", hash = "sha256:25a9b856f786ea63477aea31b07406af9779a0ac98b5b93c83de716855a3aae8"},
+    {file = "pyobjc-framework-Acts-5.3.tar.gz", hash = "sha256:45a25df071b6524c2b8fbbe28c0ee20e751c487872626ee5a740a4a64ef38f28"},
+    {file = "pyobjc_framework_Acts-5.3-py2.py3-none-any.whl", hash = "sha256:25a9b856f786ea63477aea31b07406af9779a0ac98b5b93c83de716855a3aae8"},
 ]
 
 [package.dependencies]
@@ -444,7 +444,7 @@ files = [
 
 [package.dependencies]
 pyobjc-core = ">=5.3"
-pyobjc-framework-Accounts = ">=5.3"
+pyobjc-framework-Acts = ">=5.3"
 pyobjc-framework-Cocoa = ">=5.3"
 pyobjc-framework-CoreData = ">=5.3"
 pyobjc-framework-CoreLocation = ">=5.3"
@@ -936,7 +936,7 @@ pyobjc-framework-Cocoa = ">=5.3"
 [[package]]
 name = "pyobjc-framework-eventkit"
 version = "5.3"
-description = "Wrappers for the framework Accounts on macOS"
+description = "Wrappers for the framework Acts on macOS"
 optional = false
 python-versions = "*"
 files = [
